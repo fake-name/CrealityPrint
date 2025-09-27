@@ -482,6 +482,8 @@ void ArrangeJob::prepare_partplate() {
 //BBS: add partplate logic
 void ArrangeJob::prepare()
 {
+    m_plater->get_notification_manager()->cleanup_arrange_notifications();
+
     m_plater->get_notification_manager()->push_notification(NotificationType::ArrangeOngoing,
         NotificationManager::NotificationLevel::RegularNotificationLevel, _u8L("Arranging..."));
     m_plater->get_notification_manager()->bbl_close_plateinfo_notification();
@@ -583,7 +585,7 @@ void ArrangeJob::check_unprintable()
 void ArrangeJob::process(Ctl &ctl)
 {
     static const auto arrangestr = _u8L("Arranging");
-    ctl.update_status(0, arrangestr);
+   // ctl.update_status(0, arrangestr);
     ctl.call_on_main_thread([this]{ prepare(); }).wait();;
 
     auto & partplate_list = m_plater->get_partplate_list();
@@ -608,7 +610,7 @@ void ArrangeJob::process(Ctl &ctl)
     params.stopcondition = [&ctl]() { return ctl.was_canceled(); };
 
     params.progressind = [this, &ctl](unsigned num_finished, std::string str = "") {
-        ctl.update_status(num_finished * 100 / status_range(), _u8L("Arranging") + str);
+   //     ctl.update_status(num_finished * 100 / status_range(), _u8L("Arranging") + str);
     };
 
     {
@@ -650,9 +652,12 @@ void ArrangeJob::process(Ctl &ctl)
     }
 
     // finalize just here.
-    ctl.update_status(100,
+  /*  ctl.update_status(100,
         ctl.was_canceled() ? _u8L("Arranging canceled.") :
-        we_have_unpackable_items ? _u8L("Arranging is done but there are unpacked items. Reduce spacing and try again.") : _u8L("Arranging done."));
+        we_have_unpackable_items ? _u8L("Arranging is done but there are unpacked items. Reduce spacing and try again.") : _u8L("Arranging done."));*/
+
+    
+    m_plater->get_notification_manager()->cleanup_arrange_notifications();
 }
 
 ArrangeJob::ArrangeJob() : m_plater{wxGetApp().plater()} { }

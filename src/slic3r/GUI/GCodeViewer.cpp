@@ -726,12 +726,9 @@ void GCodeViewer::GCodeWindow::renderGcode(uint64_t curr_line_id, int canvas_wid
             // read line from file
             const size_t start = id == 1 ? 0 : m_lines_ends[id - 2];
             const size_t original_len = m_lines_ends[id - 1] - start;
-            const size_t len = std::min(original_len, (size_t)55);
-            std::string  gline(m_file.data() + start, len);
 
-            // If original line is longer than 55 characters, truncate and append "..."
-            if (original_len > 42)
-                gline = gline.substr(0, 39) + "...";
+            // fix bug[10385] task[2520] : 超长，不截断，改为另起一行
+            std::string  gline(m_file.data() + start, original_len); 
 
             std::string command, parameters, comment;
             // extract comment
@@ -803,6 +800,8 @@ void GCodeViewer::GCodeWindow::renderGcode(uint64_t curr_line_id, int canvas_wid
         // spacer to right align text
         ImGui::Dummy({ id_width - ImGui::CalcTextSize(id_str.c_str()).x* zoom, text_height });
         ImGui::SameLine(0.0f, 0.0f);
+        float id_start_x = ImGui::GetCursorPosX() + id_width; // 行号右边界
+
         ImGui::PushStyleColor(ImGuiCol_Text, LINE_NUMBER_COLOR);
         DispConfig().boldText(id_str, zoom);
         //imgui.text(id_str);
@@ -820,9 +819,31 @@ void GCodeViewer::GCodeWindow::renderGcode(uint64_t curr_line_id, int canvas_wid
 
         // render parameters
         if (!line.parameters.empty()) {
-            ImGui::SameLine(0.0f, 0.0f);
             ImGui::PushStyleColor(ImGuiCol_Text, PARAMETERS_COLOR);
-            DispConfig().boldText(line.parameters, zoom);
+
+            // 计算行号和 command 的宽度
+            float id_width_actual  = ImGui::CalcTextSize(std::to_string(id).c_str()).x * zoom;
+            float command_width    = ImGui::CalcTextSize(line.command.c_str()).x * zoom;
+            float parameters_width = ImGui::CalcTextSize(line.parameters.c_str()).x * zoom;
+
+            float total_width  = id_width_actual + command_width + parameters_width + 3 * style.ItemSpacing.x;
+            float window_width = ImGui::GetContentRegionAvail().x;
+
+            // fix bug[10385] task[2520] : 超长，不截断，改为另起一行
+            if (total_width < window_width) {
+                ImGui::SameLine(0.0f, 0.0f);
+                DispConfig().boldText(line.parameters, zoom);
+            } else {
+                // 设置光标位置对齐行号
+                std:string s_param = line.parameters;
+                if (!s_param.empty() && s_param.front() == ' ') {
+                    s_param.erase(0, 1); // 去掉第一个空格
+                }
+                ImGui::SetCursorPosX(id_start_x ); // 对齐行号右边界
+                float wrap_x = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x ;
+                DispConfig().boldTextWrapped(s_param, zoom, wrap_x);
+            }
+
             ImGui::PopStyleColor();
         }
 
@@ -1090,6 +1111,7 @@ void GCodeViewer::load(const GCodeProcessorResult& gcode_result, const Print& pr
                 const std::vector<BoundingBoxf3>& exclude_bounding_box, ConfigOptionMode mode, bool only_gcode)
 {
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " start";
+    system_memory_stats(__FUNCTION__);
 
     // avoid processing if called with the same gcode_result
     if (m_last_result_id == gcode_result.id) {
@@ -2165,6 +2187,7 @@ void GCodeViewer::export_toolpaths_to_obj(const char* filename) const
 void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const BuildVolume& build_volume, const std::vector<BoundingBoxf3>& exclude_bounding_box)
 {
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " start memory info " << log_memory_info();
+    system_memory_stats(__FUNCTION__);
 
     // max index buffer size, in bytes
     static const size_t IBUFFER_THRESHOLD_BYTES = 64 * 1024 * 1024;
@@ -2781,6 +2804,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
         }
     }
 
+    system_memory_stats("Gcode parsing completed");
 
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " load indices end";
 
@@ -3005,6 +3029,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             smooth_triangle_toolpaths_corners(t_buffer, vertices[i]);
         }
     }
+    system_memory_stats("smooth_triangle_toolpaths_corners end");
 
     // dismiss, no more needed
     std::vector<size_t>().swap(biased_seams_ids);
@@ -3083,6 +3108,8 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             }
         }
     }
+
+    system_memory_stats("send vertices data to gpu end");
 
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " send vertices data to gpu, where needed end";
 
@@ -3287,6 +3314,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     seams_count = 0;
     std::vector<size_t> move_ids_mapper;
     std::vector<const GCodeProcessorResult::MoveVertex*> vertices_mapper;
+    system_memory_stats("move_ids_mapper.resize ");
     if(m_moves_count > 0)
         move_ids_mapper.resize(m_moves_count, -1);
 
@@ -3413,6 +3441,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
 
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " end memory info " << log_memory_info();
     boost::log::core::get()->flush();
+    system_memory_stats(__FUNCTION__);
 }
 
 void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_previewing)
@@ -3439,6 +3468,7 @@ void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_p
     // BBS: fix the issue that object_idx is not assigned as index of Model.objects array
     int object_count = 0;
     const ModelObjectPtrs& model_objs = wxGetApp().model().objects;
+	bool  enable_lod   = false;
     for (const PrintObject* obj : print.objects()) {
         const ModelObject* model_obj = obj->model_object();
 
@@ -3465,7 +3495,7 @@ void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_p
         instance_ids.resize(instance_index);
 
         size_t current_volumes_count = m_shells.volumes.volumes.size();
-        m_shells.volumes.load_object(model_obj, object_idx, instance_ids, "object", initialized);
+        m_shells.volumes.load_object(model_obj, object_idx, instance_ids, "object", initialized, enable_lod);
 
         // adjust shells' z if raft is present
         const SlicingParameters& slicing_parameters = obj->slicing_parameters();
@@ -3640,11 +3670,8 @@ void GCodeViewer::refresh_render_paths(bool keep_sequential_current_first, bool 
     //BBS
     if (!keep_sequential_current_last) sequential_view->current.last = m_sequential_view.gcode_ids.size();
 
-    /*bool show_surface = m_layers_slider->is_higher_at_max() && m_layers_slider->is_lower_at_min();
-    bool has_surface  = is_visible(ExtrusionRole::erExternalPerimeter) && is_visible(ExtrusionRole::erTopSolidInfill) &&
-                       is_visible(ExtrusionRole::erBottomSurface);
-    show_surface &= has_surface;*/
-
+    bool show_surface = show_gcode_surface();
+    
     // first pass: collect visible paths and update sequential view data
     std::vector<std::tuple<unsigned char, unsigned int, unsigned int, unsigned int>> paths;
 
@@ -3687,15 +3714,13 @@ void GCodeViewer::refresh_render_paths(bool keep_sequential_current_first, bool 
                 if (path.type == EMoveType::Extrude && !is_visible(path))
                     continue;
 
-                /*if (show_surface) {
-                    if (role_been_filtered_in_lite_mode(path.role))
-                        continue;
-                }*/
-                
                 if (m_tools.m_tool_visibles.size() <= path.extruder_id)
                     continue;
 
                 if (m_view_type == EViewType::ColorPrint && !m_tools.m_tool_visibles[path.extruder_id])
+                    continue;
+
+				if (show_surface && role_been_filtered_in_lite_mode(path.role))
                     continue;
 
                 // store valid path
@@ -5394,7 +5419,7 @@ private:
             }
         }
 
-        float average_col_width = ImGui::GetWindowWidth() / static_cast<float>(title_columns.size());
+        float average_col_width = 400*m_scale / static_cast<float>(title_columns.size());
         std::vector<float> ret;
         ret.push_back(0);
         for (size_t i = 1; i < title_columns.size(); i++) {
@@ -5846,6 +5871,19 @@ void GCodeViewer::render(int canvas_width, int canvas_height)
                         });
                 }
 
+#if 0
+				//
+				std::string version = std::string(PROJECT_VERSION_EXTRA);
+                bool is_alpha = boost::algorithm::icontains(version, "alpha");
+                bool is_beta = boost::algorithm::icontains(version, "beta");
+                if (!m_is_lite_mode && (is_alpha || is_beta)) {
+                    ImGui::Text("   Lite Mode Enable:");
+                    ImGui::SameLine();
+                    char* txt = show_gcode_surface() ? "YES" : "NO";
+                    ImGui::Text(txt);
+				}
+#endif
+
                ImGui::EndChild();
 
                
@@ -6014,6 +6052,44 @@ ColorRGBA GCodeViewer::option_color(EMoveType move_type) const
 void GCodeViewer::_on_set_fold(bool fold_value) 
 {
     wxGetApp().plater()->get_current_canvas3D()->set_left_panel_fold(GLCanvas3D::CanvasPreview, fold_value);
+}
+
+bool GCodeViewer::show_gcode_surface() const { 
+	
+	if (m_gcode_result) {
+        if (m_gcode_result->top_shell_layers == 0 || m_gcode_result->bottom_shell_layers == 0 || m_gcode_result->wall_loops == 0) 
+			return false;
+	}	
+
+	bool full_range   = m_layers_slider->is_higher_at_max() && m_layers_slider->is_lower_at_min() && m_moves_slider->is_higher_at_max();
+    bool show_surface = full_range && is_visible(ExtrusionRole::erExternalPerimeter);  //show outer wall
+
+    if (show_surface) {
+        bool has_top    = false;
+        bool has_bottom = false;
+        for (size_t i = 0; i < m_roles.size(); i++) {
+            const ExtrusionRole& role = m_roles.at(i);
+            if (role == ExtrusionRole::erTopSolidInfill) {
+                has_top = true;
+            } else if (role == ExtrusionRole::erBottomSurface) {
+                has_bottom = true;
+            }
+        }
+	
+		// has top and show
+        if (has_top) {
+            show_surface = is_visible(ExtrusionRole::erTopSolidInfill);
+		}
+
+		// has bottom and show
+		if (show_surface) {
+            if (has_bottom) {
+                show_surface = is_visible(ExtrusionRole::erBottomSurface);  
+			}
+		}
+    }
+
+	return show_surface;
 }
 
 void GCodeViewer::set_fold(bool fold)

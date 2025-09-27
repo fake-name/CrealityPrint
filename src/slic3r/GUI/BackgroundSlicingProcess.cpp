@@ -523,6 +523,7 @@ unsigned long BackgroundSlicingProcess::thread_proc_safe_seh() throw()
 }
 void BackgroundSlicingProcess::thread_proc_safe_seh_throw() throw()
 {
+    system_memory_stats(__FUNCTION__);
 	unsigned long win32_seh_catched = this->thread_proc_safe_seh();
 	if (win32_seh_catched) {
 		// Rethrow SEH exception as Slicer::HardCrash.

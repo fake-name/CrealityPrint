@@ -6,6 +6,13 @@
 
 namespace Slic3r {
 
+namespace MarchingSquares {
+struct Point
+{
+    double x, y;
+};
+}
+
 class FillTpmsD : public Fill
 {
 public:
@@ -25,6 +32,9 @@ public:
     // Gyroid upper resolution tolerance (mm^-2)
     static constexpr double PatternTolerance = 0.2;
 
+    virtual void cal_scalar_field(const FillParams&                                 params,
+                                  std::vector<std::vector<MarchingSquares::Point>>& posxy,
+                                  std::vector<std::vector<double>>&                 data);
 
 protected:
     void _fill_surface_single_brige(

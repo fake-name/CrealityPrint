@@ -124,8 +124,14 @@ private:
     // Postprocesses gcode: rotates and moves G1 extrusions and returns result
     std::string post_process_wipe_tower_moves(const WipeTower::ToolChangeResult& tcr,
                                               const Vec2f&                       translation,
+                                              float                              angle, float z = .0f, bool change_m = false) const;
+    // Postprocesses gcode: rotates and moves G1 extrusions and returns result
+
+    std::string post_process_wipe_tower_moves_wipe(const WipeTower::ToolChangeResult& tcr,
+                                              const Vec2f&                       translation,
                                               float                              angle,
-                                              float                              z = .0f) const;
+                                              float                              z = .0f,
+                                              bool change_m = false) const;
     // Left / right edges of the wipe tower, for the planning of wipe moves.
     const float                                                  m_left;
     const float                                                  m_right;
@@ -174,6 +180,13 @@ struct LayerResult {
     static LayerResult make_nop_layer_result() { return {"", std::numeric_limits<coord_t>::max(), false, false, true}; }
 };
 
+struct FlushConfig
+{
+    int box_first_clean_length;
+    int box_need_clean_length;
+    int box_need_clean_length_max;
+} ;
+void cal_flush_list(float src_length, std::vector<float>& cal_length, const FlushConfig& cfg);
 class GCode {
 
 public:
@@ -244,9 +257,19 @@ public:
     std::string     retract(bool toolchange = false, bool is_last_retraction = false, LiftType lift_type = LiftType::NormalLift);
     std::string     unretract(const double limitSpeed = 0.0f) { return m_writer.unlift(limitSpeed) + m_writer.unretract(); }
     std::string     set_extruder(unsigned int extruder_id, double print_z, bool by_object = false, bool change_tool = true);
+    std::string  set_extruder_new(unsigned int extruder_id,
+                                          double       print_z,
+                                          float        trc_wipe_volume,
+                                          float        wipe_pos_x,
+                                          float        wipe_pos_y,
+                                          float        max_wipe_x,
+                                          float        max_wipe_y,
+                                          bool         by_object   = false,
+                                          bool         change_tool = true);
+
     void            set_tower_pos(Vec2d _pos);
     bool is_BBL_Printer();
-
+    bool            is_CX_printer();
     double getLimitSpeed();
 
     // SoftFever
@@ -459,7 +482,7 @@ private:
 		// For sequential print, the instance of the object to be printing has to be defined.
 		const size_t                     				 single_object_instance_idx);
 
-    std::string     extrude_perimeters(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region);
+    std::string     extrude_perimeters(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region, bool is_first_layer, bool is_infill_first);
     std::string     extrude_infill(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region, bool ironing);
     std::string     extrude_support(const ExtrusionEntityCollection& support_fills);
 

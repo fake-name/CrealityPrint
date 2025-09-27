@@ -1768,6 +1768,9 @@ msgstr "預設"
 msgid "Height to rod"
 msgstr "到橫杆高度"
 
+msgid "multicolor method"
+msgstr "冲刷量切片计算"
+
 msgid ""
 "Distance of the nozzle tip to the lower rod. Used for collision avoidance in "
 "by-object printing."
@@ -13689,6 +13692,9 @@ msgstr "亞太"
 
 msgid "China"
 msgstr "中國"
+
+msgid "Chinese Mainland"
+msgstr "中國內地（大陸）"
 
 msgid "Europe"
 msgstr "歐洲"

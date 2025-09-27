@@ -1,4 +1,4 @@
-#ifndef slic3r_GCodeProcessor_hpp_
+﻿#ifndef slic3r_GCodeProcessor_hpp_
 #define slic3r_GCodeProcessor_hpp_
 
 #include "libslic3r/GCodeReader.hpp"
@@ -242,6 +242,9 @@ class Print;
         std::string                     printer_settings_id;
         std::string                     gcode_uuid;
         float                           nozzle_diameter;
+        int                             top_shell_layers;
+        int                             bottom_shell_layers;
+        int                             wall_loops;
         std::vector<std::pair<std::array<int, 2>, std::vector<unsigned char>>> image_data;
 
         //BBS
@@ -296,6 +299,9 @@ class Print;
             printer_settings_id = other.printer_settings_id;
             gcode_uuid = other.gcode_uuid;
             nozzle_diameter = other.nozzle_diameter;
+            top_shell_layers = other.top_shell_layers;
+            bottom_shell_layers = other.bottom_shell_layers;
+            wall_loops = other.wall_loops;
             image_data = other.image_data;
             x_offset =other.x_offset;
             y_offset = other.y_offset;
@@ -347,6 +353,9 @@ class Print;
             printer_settings_id                = other.printer_settings_id;
             gcode_uuid                        = other.gcode_uuid;
             nozzle_diameter                   = other.nozzle_diameter;
+            top_shell_layers                  = other.top_shell_layers;
+            bottom_shell_layers               = other.bottom_shell_layers;
+            wall_loops                        = other.wall_loops;
             image_data                        = other.image_data;
             x_offset                          = other.x_offset;
             y_offset                          = other.y_offset;
@@ -357,7 +366,6 @@ class Print;
         void  lock() const { result_mutex.lock(); }
         void  unlock() const { result_mutex.unlock(); }
     };
-
 
     class GCodeProcessor
     {
@@ -411,6 +419,16 @@ class Print;
         static bool s_IsCFSPrinter;
         static float s_creality_flush_time;
 
+
+        void  calc_junction_deviation();
+        void  set_velocity_limit(const float& velocity, const float& accel, const float& square_corner_v, const float& accel_to_decel);
+        float m_max_velocity;
+        float m_max_accel;
+        float m_requested_accel_to_decel;
+        float m_square_corner_velocity;
+        float        m_max_accel_to_decel;
+       
+        float m_junction_deviation;
 #if ENABLE_GCODE_VIEWER_DATA_CHECKING
         static const std::string Mm3_Per_Mm_Tag;
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
@@ -488,29 +506,32 @@ class Print;
             Flags flags;
             FeedrateProfile feedrate_profile;
             Trapezoid trapezoid;
-            float times;
-            float max_start_v2;
-
+            
+            float accel;
+            float move_d;
+            float extruder_e;
             // Calculates this block's trapezoid
             void calculate_trapezoid();
+            void calculate_trapezoid_dec();
+            float nominal_rate;
+            float max_start_v2, max_smoothed_v2, max_cruise_v2;
+            float delta_v2, smooth_delta_v2;
 
-            float delta_v2;
-            float smooth_delta_v2;
-            float max_smoothed_v2 =0;
-            float max_cruise_v2;
+            float start_v2 = 0.0f, cruise_v2 = 0.0f, end_v2 = 0.0f;
+            float min_move_t = 0.0f;
+            float deceleration{0.0f}; // mm/s^2
+            float junction_deviation = 0.05f;
+            Vec3f axes_r             = {1.0f, 0.0f, 0.0f}; // 归一化运动方向向量
+            bool  is_kinematic_move  = true;
+            float instant_corner_v   = 10;
+            void  prepare();
 
-            float move_d = 0.0f;    // �ƶ�����
-            float accel  = 1000.0f; // ���ٶȣ���λ mm/s^2
+            void set_junction(float s_v2, float c_v2, float e_v2);
 
-            float start_v  = 0.0f;
-            float cruise_v = 0.0f;
-            float end_v    = 0.0f;
-
-            float accel_t = 0.0f;
-            float cruise_t = 0.0f;            
-            float decel_t = 0.0f; 
-
-            void  set_junction(float start_v2, float cruise_v2, float end_v2);
+            void calc_junction(const TimeBlock& prev);
+            float extruder_calc_juntion(const TimeBlock& prev);
+            float calc_move_time() const;
+            float move_t;
             float time() const;
         };
 
@@ -593,12 +614,23 @@ class Print;
             float prepare_time;
 
             void reset();
-
+            float m_additional_time = 0.0;
             // Simulates firmware st_synchronize() call
             void simulate_st_synchronize(float additional_time = 0.0f);
             void calculate_time(size_t keep_last_n_blocks = 0, float additional_time = 0.0f);
             void calculate_time_klipper(size_t keep_last_n_blocks = 0, float additional_time = 0.0f);
             void flush_time(std::vector<TimeBlock>& queue, bool lazy);
+           
+        
+          
+            bool add_move(TimeBlock move);
+            bool should_flush() const;
+            std::vector<TimeBlock> flush(bool lazy = false);
+            bool                  empty() const;
+        private:
+            std::vector<TimeBlock> queue_;
+            float             junction_flush_time_ = 0.20f;
+            const float       default_flush_time_  = 0.20f;
         };
 
         struct TimeProcessor
@@ -816,7 +848,7 @@ class Print;
         AxisCoords m_origin; // mm
         CachedPosition m_cached_position;
         bool m_wiping;
-        bool m_flushing;
+        bool               m_flushing = false;
         bool m_wipe_tower;
         float m_remaining_volume;
         bool m_manual_filament_change;
@@ -984,7 +1016,10 @@ class Print;
         void process_G1(const GCodeReader::GCodeLine& line);
         void process_G2_G3(const GCodeReader::GCodeLine& line);
         void process_G1_klipper(const GCodeReader::GCodeLine& line);
+        void process_G1_klipper_new(const GCodeReader::GCodeLine& line);
         void process_G2_G3_klipper(const GCodeReader::GCodeLine& line);
+        void process_G2_G3_klipper_new(const GCodeReader::GCodeLine& line);
+        
         // BBS: handle delay command
         void process_G4(const GCodeReader::GCodeLine& line);
 
@@ -1100,6 +1135,13 @@ class Print;
         void process_T(const GCodeReader::GCodeLine& line);
         void process_T(const std::string_view command);
 
+        void process_M8200(const GCodeReader::GCodeLine& line);
+        void process_M8200P(const GCodeReader::GCodeLine& line);
+        void process_M8200R(const GCodeReader::GCodeLine& line);
+        void process_M8200C(const GCodeReader::GCodeLine& line);
+        void process_M8200L(const GCodeReader::GCodeLine& line);
+        void process_M8200O(const GCodeReader::GCodeLine& line);
+
         // post process the file with the given filename to:
         // 1) add remaining time lines M73 and update moves' gcode ids accordingly
         // 2) update used filament data
@@ -1120,7 +1162,7 @@ class Print;
         void  set_retract_acceleration(PrintEstimatedStatistics::ETimeMode mode, float value);
         float get_acceleration(PrintEstimatedStatistics::ETimeMode mode) const;
         void  set_acceleration(PrintEstimatedStatistics::ETimeMode mode, float value);
- void  set_deceleration(PrintEstimatedStatistics::ETimeMode mode, float value);
+        void  set_deceleration(PrintEstimatedStatistics::ETimeMode mode, float value);
         float get_deceleration(PrintEstimatedStatistics::ETimeMode mode) const;       
 		 float get_travel_acceleration(PrintEstimatedStatistics::ETimeMode mode) const;
         void  set_travel_acceleration(PrintEstimatedStatistics::ETimeMode mode, float value);

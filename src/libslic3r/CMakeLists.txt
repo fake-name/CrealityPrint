@@ -149,6 +149,8 @@ set(lisbslic3r_sources
     Fill/Quarter/ZigzagConnectorProcessor.h
     Fill/FillTpmsD.cpp
     Fill/FillTpmsD.hpp
+	Fill/FillTpmsGradual.cpp
+    Fill/FillTpmsGradual.hpp
     Flow.cpp
     Flow.hpp
     FlushVolCalc.cpp

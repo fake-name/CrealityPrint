@@ -919,6 +919,7 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
         // Create the filler object.
         std::unique_ptr<Fill> f = std::unique_ptr<Fill>(Fill::new_from_type(surface_fill.params.pattern));
         f->set_bounding_box(bbox);
+        f->set_bounding_box_height(this->object()->height());
         f->layer_id = this->id();
         f->z 		= this->print_z;
         f->angle 	= surface_fill.params.angle;
@@ -1062,6 +1063,9 @@ Polylines Layer::generate_sparse_infill_polylines_for_anchoring(FillAdaptive::Oc
         case ip3DHoneycomb:
         case ipGyroid:
         case ipTpmsD:
+        case ipGradualTpmsG:
+        case ipGradualTpmsD:  
+        case ipGradualTpmsFKS:
         case ipHilbertCurve:
         case ipArchimedeanChords:
         case ipOctagramSpiral: break;

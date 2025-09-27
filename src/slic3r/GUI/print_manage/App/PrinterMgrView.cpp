@@ -22,6 +22,8 @@
 #include <wx/webview.h>
 #include "slic3r/GUI/print_manage/RemotePrinterManager.hpp"
 #include <boost/beast/core/detail/base64.hpp>
+#include <boost/log/trivial.hpp>
+#include <vector>
 
 #include <wx/stdpaths.h>
 #include "../utils/cxmdns.h"
@@ -125,12 +127,146 @@ PrinterMgrView::PrinterMgrView(wxWindow *parent)
     #endif
     DM::AppMgr::Ins().Register(m_browser);
     DM::AppMgr::Ins().RegisterEvents(m_browser, std::vector<std::string>{DM::EVENT_SET_CURRENT_DEVICE, DM::EVENT_FORWARD_DEVICE_DETAIL});
+    //initMqtt();
  }
+inline int get_current_milliseconds(void) {
+    // 获取当前时间点
+    auto now = std::chrono::system_clock::now();
+  
+   // 将当前时间点转换为毫秒时间戳
+   auto duration = now.time_since_epoch();
+   auto timestamp_milliseconds =
+       std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+ 
+   return (int)timestamp_milliseconds;
+}
+void PrinterMgrView::destoryMqtt()
+{
+    if(client)
+    {
+        try {
+            if(client->isConnected())
+            {
+                client->disconnect();
+            }
+        } catch (const mqtt::exception& exc) {
+            std::cerr << "destoryMqtt failed: " << exc.what() << std::endl;
+        }
+        delete client;
+        client = nullptr;
+    }
+}
+void PrinterMgrView::initMqtt()
+{
+    std::map<std::string, std::string> extra_headers = Slic3r::GUI::wxGetApp().get_extra_header();
+    std::string duid = "";
+    std::string plat = "11";
+    std::string appVer = "";
+    std::string userid;
+    std::string token;
+    if(extra_headers.count("__CXY_DUID_"))
+    {
+        duid = extra_headers["__CXY_DUID_"];
+        appVer = extra_headers["__CXY_APP_VER_"];
+       userid = extra_headers["__CXY_UID_"];
+       token = extra_headers["__CXY_TOKEN_"];
 
+    }
+    std::string username= (boost::format("%s:%s:%s")%duid%plat%appVer).str();//"crealityprint:11:6.2.0";
+    std::string password=(boost::format("%s:%s")%userid%token).str();//"3656792567:083fa893b41e1af54dbc32396e41b605986df75622eb6e64b897cea378203f7d";
+    bool connected_ = false;
+    std::string region = wxGetApp().app_config->get("region");
+    if(region=="China")
+    {
+        client = new MQTTClient("tcp://mqtt.crealitycloud.cn:1883", "sync_client_"+std::to_string(get_current_milliseconds()));
+    }else{
+        client = new MQTTClient("tcp://mqtt.crealitycloud.com:1883", "sync_client_"+std::to_string(get_current_milliseconds()));
+    }
+    
+    try {
+            client->setConnectionCallback([](bool connected) {
+                std::cout << "Connection status: " << (connected ? "Connected" : "Disconnected") << std::endl;
+            });
+            
+            // 连接到服务器
+            if (!client->connect(username,password)) {
+                std::cerr << "Failed to connect to MQTT server" << std::endl;
+                return ;
+            }
+            
+             // 订阅主题并设置回调
+            const std::string publishTopic = "v1/devices/me/rpc/request/";
+            bool ret =client->subscribe(publishTopic+std::string("+"), 0, [&](const std::string& topic, const std::string& payload) {
+                std::cout << "Received message on topic '" << topic << "': " << payload << std::endl;
+                wxTheApp->CallAfter([this, topic,payload]() {
+                    processMqttMessage(topic,payload);
+                });
+            });
+            if(!ret)
+            {
+                return;
+            }
+            
+            return ;
+            
+    } catch (const mqtt::exception& exc) {
+            std::cerr << "Connect failed: " << exc.what() << std::endl;
+            return ;
+        }
+}
+void PrinterMgrView::processMqttMessage(std::string topic,std::string playload)
+{
+    if(client && client->isConnected())
+    {
+        if (!m_browser->IsBusy())
+         {
+            nlohmann::json commandJson;
+            commandJson["command"] = "mqtt_message";
+            commandJson["data"]    = RemotePrint::Utils::url_encode(playload);
+
+            wxString strJS = wxString::Format("window.handleStudioCmd('%s');", RemotePrint::Utils::url_encode(commandJson.dump(-1, ' ', true)));
+            run_script(strJS.ToStdString());
+        }
+        std::string requestId = topic.substr(26);
+        nlohmann::json reply;
+        reply["code"] = 0;
+        client->publish(std::string("v1/devices/me/rpc/response/")+requestId, reply.dump(),0);
+    }
+    
+}
+void PrinterMgrView::setMqttDeviceDN(std::string dn)
+{
+    if(!client)
+    {
+       initMqtt(); 
+    }
+    if(client && client->isConnected())
+    {
+        if(m_curDeviceDN!="")
+        {
+            nlohmann::json dns;
+            dns.push_back(m_curDeviceDN);
+            nlohmann::json params;
+            params["delMonitorDevice"]["dn"]= dns;
+            nlohmann::json payload;
+            payload["method"] = "set";
+            payload["params"] = params;
+            client->publish(std::string("v1/devices/me/attributes/")+std::to_string(get_current_milliseconds()), payload.dump(),0);
+        }
+        m_curDeviceDN = dn;
+        nlohmann::json dns;
+        dns.push_back(m_curDeviceDN);
+        nlohmann::json params;
+        params["addMonitorDevice"]["dn"]= dns;
+        nlohmann::json payload;
+        payload["method"] = "set";
+        payload["params"] = params;
+        client->publish(std::string("v1/devices/me/attributes/")+std::to_string(get_current_milliseconds()), payload.dump(),0);
+    }
+ }
 PrinterMgrView::~PrinterMgrView()
 {
     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " Address: " << (void*) this;
-
 #ifdef __WXGTK__
     m_freshTimer->Stop();
     m_browser->Stop();
@@ -140,6 +276,7 @@ PrinterMgrView::~PrinterMgrView()
     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " Start";
     SetEvtHandlerEnabled(false);
     m_scanExit = true;
+    destoryMqtt();
     m_scanPoolThread.join();
     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " End";
 }
@@ -281,6 +418,7 @@ void PrinterMgrView::OnLoaded(wxWebViewEvent &evt)
             }
         }
     correct_device();
+    //setMqttDeviceDN("61643612032A19");
 }
 void PrinterMgrView::sendProgressWithRateLimit(std::string ip,float progress,double speed)
 {
@@ -490,6 +628,10 @@ void PrinterMgrView::OnScriptMessage(wxWebViewEvent& evt)
         else if (strCmd == "scan_device")
         {
             scan_device();
+        }else if(strCmd == "viewDetialEvent")
+        {
+             std::string address = j["address"];
+             setMqttDeviceDN(address);
         }
 
         else if (m_commandHandlers.find(strCmd.ToStdString()) != m_commandHandlers.end())
@@ -639,6 +781,7 @@ void PrinterMgrView::OnScriptMessage(wxWebViewEvent& evt)
 
 std::string PrinterMgrView::get_plate_data_on_show()
 {
+    try {
     nlohmann::json json_array = nlohmann::json::array();
 
     std::vector<std::string> extruder_colors = Slic3r::GUI::wxGetApp().plater()->get_extruder_colors_from_plater_config();
@@ -680,17 +823,36 @@ std::string PrinterMgrView::get_plate_data_on_show()
 
             wxMemoryOutputStream mem_stream;
             if (!resized_image.SaveFile(mem_stream, wxBITMAP_TYPE_PNG)) {
-                wxLogError("Failed to save image to memory stream.");
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": thumbnail SaveFile PNG->memory failed"
+                                         << " | plate_index=" << plate->get_index()
+                                         << " | src_w=" << image.GetWidth()
+                                         << " | src_h=" << image.GetHeight()
+                                         << " | dst_w=" << resized_image.GetWidth()
+                                         << " | dst_h=" << resized_image.GetHeight()
+                                         << " | slice_ready=" << plate->is_slice_result_ready_for_print()
+                                         << " | thumb_valid=" << plate->thumbnail_data.is_valid();
+                boost::log::core::get()->flush();
             }
 
             auto size = mem_stream.GetSize();
-            // wxMemoryBuffer buffer(size);
-            auto imgdata = new unsigned char[size];
-            mem_stream.CopyTo(imgdata, size);
+            // 使用智能指针/容器管理内存，避免泄漏
+            std::vector<unsigned char> imgdata(size);
+            if (size > 0) {
+                mem_stream.CopyTo(imgdata.data(), size);
+            } else {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": thumbnail memory stream size is zero after SaveFile"
+                                         << " | plate_index=" << plate->get_index()
+                                         << " | dst_w=" << resized_image.GetWidth()
+                                         << " | dst_h=" << resized_image.GetHeight()
+                                         << " | png_type=wxBITMAP_TYPE_PNG";
+                boost::log::core::get()->flush();
+            }
 
             std::size_t encoded_size = boost::beast::detail::base64::encoded_size(size);
             std::string img_base64_data(encoded_size, '\0');
-            boost::beast::detail::base64::encode(&img_base64_data[0], imgdata, size);
+            if (size > 0) {
+                boost::beast::detail::base64::encode(&img_base64_data[0], imgdata.data(), size);
+            }
 
             std::string default_gcode_name = "";
 
@@ -715,8 +877,22 @@ std::string PrinterMgrView::get_plate_data_on_show()
                     plate_print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)];
 
                 if (plate_extruders.size() > 0) {
-                    default_gcode_name = obj0_name + "_" + filament_types[plate_extruders[0] - 1] + "_" +
-                                         get_bbl_time_dhms(plate_time_mode.time) + ".gcode";
+                    // 边界安全检查：防止 plate_extruders[0]-1 越界访问 filament_types
+                    int extruder_index = plate_extruders[0] - 1;
+                    if (extruder_index >= 0 && extruder_index < static_cast<int>(filament_types.size())) {
+                        default_gcode_name = obj0_name + "_" + filament_types[extruder_index] + "_" +
+                                             get_bbl_time_dhms(plate_time_mode.time) + ".gcode";
+                    } else {
+                        BOOST_LOG_TRIVIAL(error) << __FUNCTION__
+                                                 << ": invalid extruder index when composing default_gcode_name"
+                                                 << " | plate_index=" << plate->get_index()
+                                                 << " | obj0_name=" << obj0_name
+                                                 << " | print_time=" << get_bbl_time_dhms(plate_time_mode.time)
+                                                 << " | extruder_index=" << extruder_index
+                                                 << " | filament_types_size=" << filament_types.size();
+                        default_gcode_name = obj0_name + "_" + get_bbl_time_dhms(plate_time_mode.time) + ".gcode";
+                        boost::log::core::get()->flush();
+                    }
                 } else {
                     default_gcode_name = "plate" + std::to_string(i + 1) + ".gcode";
                 }
@@ -750,9 +926,29 @@ std::string PrinterMgrView::get_plate_data_on_show()
     commandJson["data"]    = RemotePrint::Utils::url_encode(json_str);
 
     std::string commandStr = commandJson.dump(-1, ' ', true);
-
     return RemotePrint::Utils::url_encode(commandStr);
+    }
+    catch (const std::bad_alloc& e) {
+        AnalyticsDataUploadManager::getInstance().triggerUploadTasks(AnalyticsUploadTiming::ON_SOFTWARE_CRASH,
+                                                                     {AnalyticsDataEventType::ANALYTICS_BAD_ALLOC});
 
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": OOM while building plate data. " << e.what();
+        boost::log::core::get()->flush();
+        wxMessageBox(_L("Out of memory. Please save the current project and exit the application."), _L("Out of memory"), wxOK | wxICON_ERROR);
+        nlohmann::json commandJson;
+        commandJson["command"] = "update_plate_data";
+        commandJson["data"]    = RemotePrint::Utils::url_encode("{\"plates\":[],\"extruder_colors\":[],\"filament_types\":[]}");
+        return RemotePrint::Utils::url_encode(commandJson.dump(-1, ' ', true));
+    }
+    catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": Exception while building plate data. " << e.what();
+        boost::log::core::get()->flush();
+        wxMessageBox(_L("An error occurred: Failed to generate plate data."), _L("Error"), wxOK | wxICON_ERROR);
+        nlohmann::json commandJson;
+        commandJson["command"] = "update_plate_data";
+        commandJson["data"]    = RemotePrint::Utils::url_encode("{\"plates\":[],\"extruder_colors\":[],\"filament_types\":[]}");
+        return RemotePrint::Utils::url_encode(commandJson.dump(-1, ' ', true));
+    }
 }
 
 bool PrinterMgrView::Show(bool show) 
@@ -770,9 +966,6 @@ bool PrinterMgrView::Show(bool show)
 void PrinterMgrView::run_script(std::string content)
 {
     void* backend_after = m_browser->GetNativeBackend();
-    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " this Address: " << (void*) this << " wxWebView address: " << (void*) m_browser
-                               << ", Backend Ptr AFTER: " << backend_after;   
-    boost::log::core::get()->flush();
     WebView::RunScript(m_browser, content);
 }
 std::string getFileNameFromURL(const std::string& url) {

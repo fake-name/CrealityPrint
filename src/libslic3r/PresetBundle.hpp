@@ -28,7 +28,8 @@ enum VendorType {
     Klipper,
     Marlin,
     Creality,
-    Marlin_BBL
+    Marlin_BBL,
+    SPARKX
 };
 
 namespace Slic3r {

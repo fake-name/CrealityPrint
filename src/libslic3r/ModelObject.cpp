@@ -6,6 +6,8 @@
 // BBS
 #include "FaceDetector.hpp"
 
+#include <boost/log/trivial.hpp>
+
 #include "libslic3r/Geometry/ConvexHull.hpp"
 
 // BBS: for segment
@@ -18,6 +20,12 @@ namespace Slic3r {
 
 ModelObject::~ModelObject()
 {
+    BOOST_LOG_TRIVIAL(warning) << "ModelObject destructor called: name=" << name 
+                               << ", volumes_count=" << volumes.size() 
+                               << ", instances_count=" << instances.size()
+                               << ", layer_config_ranges_count=" << layer_config_ranges.size()
+                               << ", object_id=" << id().id;
+    boost::log::core::get()->flush();
     this->clear_volumes();
     this->clear_instances();
 }
@@ -239,6 +247,9 @@ void ModelObject::delete_volume(size_t idx)
 
 void ModelObject::clear_volumes()
 {
+    BOOST_LOG_TRIVIAL(warning) << "ModelObject::clear_volumes called: object_name=" << name
+                               << ", volumes_to_delete=" << volumes.size()
+                               << ", object_id=" << id().id;
     for (ModelVolume *v : this->volumes)
         delete v;
     this->volumes.clear();
@@ -322,6 +333,9 @@ void ModelObject::delete_last_instance()
 
 void ModelObject::clear_instances()
 {
+    BOOST_LOG_TRIVIAL(warning) << "ModelObject::clear_instances called: object_name=" << name
+                               << ", instances_to_delete=" << instances.size()
+                               << ", object_id=" << id().id;
     for (ModelInstance *i : this->instances)
         delete i;
     this->instances.clear();

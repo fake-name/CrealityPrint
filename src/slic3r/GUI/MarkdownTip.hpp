@@ -35,7 +35,7 @@ namespace Slic3r { namespace GUI {
 
         static void Recreate(wxWindow *parent);
         void OnMouseEvent(wxMouseEvent& event);
-
+        void setLineRect(wxRect lineRect) { m_lineRect = lineRect;}
     protected:
         ~ProcessTip();
         void OnTimer(wxTimerEvent& event);
@@ -44,16 +44,18 @@ namespace Slic3r { namespace GUI {
         ProcessTip();
         void updateUI();
         void themeChanged();
+        wxRect m_lineRect;
         wxString m_LastTip;
         ContentS m_Content;
         wxTimer* m_Timer = nullptr;
         bool m_Hide = false;
         wxStaticText* m_Title_text = nullptr;
         wxStaticText* m_Content_text = nullptr;
-        wxHyperlinkCtrl* m_Url_text = nullptr;
+        wxStaticText* m_Url_text = nullptr;
         wxStaticBitmap* m_ProcessImg = nullptr;
         StaticBox* m_ImgBox = nullptr;
         BitmapCache* m_bitmap_cache = nullptr;
+        wxPoint m_pos;
     };
 
     class MarkdownTip : public wxPopupTransientWindow

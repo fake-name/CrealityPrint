@@ -69,9 +69,159 @@ TODO:
 3. Fetch markdown content in javascript (*)
 4. Use scheme handler to support zip archive & make code tidy
 */
-static int panelWidth = 242;
+static int panelWidth = 316;
 static int paddignWidth = 8;
+static int contentWidth = 300;
+// 为中文文本手动添加换行符
+void SplitAndAddWord(const wxString& word, wxString& result, 
+                    int maxWidth, wxDC& dc)
+{
+    wxString currentSegment;
+    
+    for (size_t i = 0; i < word.length(); i++) {
+        wxChar ch = word[i];
+        wxString testSegment = currentSegment + ch;
+        
+        wxCoord width, height;
+        dc.GetTextExtent(testSegment, &width, &height);
+        
+        if (width > maxWidth) {
+            if (!result.IsEmpty()) result += "\n";
+            result += currentSegment;
+            currentSegment = ch;
+        } else {
+            currentSegment = testSegment;
+        }
+    }
+    
+    if (!currentSegment.IsEmpty()) {
+        if (!result.IsEmpty()) result += "\n";
+        result += currentSegment;
+    }
+}
+void ProcessWord(const wxString& word, wxString& currentLine, 
+                wxString& result, int maxWidth, wxDC& dc)
+{
+    if (word.IsEmpty()) return;
+    
+    wxString testLine = currentLine + word;
+    wxCoord width, height;
+    dc.GetTextExtent(testLine, &width, &height);
+    
+    if (width <= maxWidth) {
+        currentLine = testLine;
+    } else {
+        if (currentLine.IsEmpty()) {
+            // 单词本身太长，需要分割
+            SplitAndAddWord(word, result, maxWidth, dc);
+        } else {
+            // 换行后再放单词
+            if (!result.IsEmpty()) result += "\n";
+            result += currentLine;
+            currentLine = word;
+            
+            // 检查单词在新行是否仍然太长
+            dc.GetTextExtent(currentLine, &width, &height);
+            if (width > maxWidth) {
+                SplitAndAddWord(word, result, maxWidth, dc);
+                currentLine.clear();
+            }
+        }
+    }
+}
 
+void AddCharacter(wxChar ch, wxString& currentLine, 
+                 wxString& result, int maxWidth, wxDC& dc)
+{
+    wxString testLine = currentLine + ch;
+    wxCoord width, height;
+    dc.GetTextExtent(testLine, &width, &height);
+    
+    if (width <= maxWidth) {
+        currentLine = testLine;
+    } else {
+        if (!result.IsEmpty()) result += "\n";
+        if (currentLine.IsEmpty()) {
+            result += ch;
+        } else {
+            result += currentLine;
+            currentLine = ch;
+        }
+    }
+}
+
+
+wxString ChineseWrap(const wxString& text, int maxWidth, wxWindow* window)
+{
+    wxString result;
+    wxString currentLine;
+    
+    wxClientDC dc(window);
+    dc.SetFont(Label::Body_12);
+    
+    wxString currentWord;
+    
+    for (size_t i = 0; i < text.length(); i++) {
+        wxChar ch = text[i];
+        
+        // 判断字符类型
+        bool isChinese = (ch >= 0x4E00 && ch <= 0x9FFF);
+        bool isSpace = (ch == ' ' || ch == '\t' || ch == '\n');
+        
+        if (isSpace) {
+            // 遇到空格，处理当前单词
+            if (!currentWord.IsEmpty()) {
+                ProcessWord(currentWord, currentLine, result, maxWidth, dc);
+                currentWord.clear();
+            }
+            // 添加空格到当前行
+            AddCharacter(ch, currentLine, result, maxWidth, dc);
+        } else if (isChinese) {
+            // 中文字符立即处理
+            if (!currentWord.IsEmpty()) {
+                ProcessWord(currentWord, currentLine, result, maxWidth, dc);
+                currentWord.clear();
+            }
+            AddCharacter(ch, currentLine, result, maxWidth, dc);
+        } else {
+            // 英文字符添加到当前单词
+            currentWord += ch;
+        }
+    }
+    
+    // 处理最后一个单词
+    if (!currentWord.IsEmpty()) {
+        ProcessWord(currentWord, currentLine, result, maxWidth, dc);
+    }
+    
+    // 添加最后一行
+    if (!currentLine.IsEmpty()) {
+        if (!result.IsEmpty()) result += "\n";
+        result += currentLine;
+    }
+    
+    return result;
+}
+wxString HyperLinkWrap(const wxString& text, int maxWidth, wxWindow* window)
+{
+    wxString result;
+    wxString currentLine;
+    
+    wxClientDC dc(window);
+    dc.SetFont(Label::Body_10);
+    for (size_t i = 0; i < text.length(); i++) {
+        wxChar ch = text[i];
+        result += ch;
+        wxCoord width, height;
+        dc.GetTextExtent(result, &width, &height);
+        if(width > maxWidth) {
+            //result.RemoveLast();
+            result += "\n";
+            maxWidth += maxWidth;
+        }
+    }        
+    return result;
+}
 bool ProcessTip::ShowTip(wxString const& tip,
                           wxString const& tooltip_title,
                           wxString const& tooltip_content,
@@ -80,8 +230,8 @@ bool ProcessTip::ShowTip(wxString const& tip,
                           wxPoint            pos)
 { 
         processTip()->m_Content.CS_Title    = tooltip_title;
-        processTip()->m_Content.CS_Content  = tooltip_content;
-        processTip()->m_Content.CS_URL      = tooltip_url;
+        processTip()->m_Content.CS_Content  = ChineseWrap(tooltip_content,processTip()->FromDIP(260),processTip());
+        processTip()->m_Content.CS_URL      = HyperLinkWrap(tooltip_url,processTip()->FromDIP(260),processTip());
         processTip()->m_Content.CS_Image    = tooltip_img;
         return processTip()->ShowTip(pos);
 }
@@ -111,11 +261,8 @@ bool ProcessTip::ShowTip(wxPoint pos)
 
         m_LastTip = m_Content.CS_Title;
     }
-
-    wxSize size = wxDisplay(this).GetClientArea().GetSize();
-    if (pos.y + this->GetSize().y > size.y)
-        pos.y = size.y - this->GetSize().y;
-    this->SetPosition(pos);
+    m_pos = pos;
+    
 
     if (tipChanged || m_Hide) {
         m_Hide = false;
@@ -125,12 +272,16 @@ bool ProcessTip::ShowTip(wxPoint pos)
 
     return true;
 }
-
+bool is_point_in_rect(const wxPoint& pt, const wxRect& rect)
+{
+    return  rect.GetLeft() <= pt.x && pt.x <= rect.GetRight() &&
+            rect.GetTop() <= pt.y && pt.y <= rect.GetBottom();
+}
 void ProcessTip::OnTimer(wxTimerEvent& event)
 {
+    wxPoint pos = ScreenToClient(wxGetMousePosition());
     if (m_Hide) 
     {
-        wxPoint pos = ScreenToClient(wxGetMousePosition());
         if (GetClientRect().Contains(pos)) 
         {
             m_Timer->StartOnce();
@@ -140,9 +291,25 @@ void ProcessTip::OnTimer(wxTimerEvent& event)
     } 
     else 
     {
-        updateUI();
-        m_Hide = false;
-        this->Popup();
+        wxPoint pos1 = wxGetMousePosition();
+
+        if(is_point_in_rect(pos1,m_lineRect) && this->IsShown())
+        {
+            m_Timer->StartOnce();
+            return;
+        }else{
+            if(!this->IsShown())
+            {
+                updateUI();
+                m_Hide = false;     
+                this->Popup();
+                m_Timer->StartOnce();
+            }else{
+                m_Hide = true;
+                m_Timer->StartOnce();
+            }
+            
+        }
     }
 }
 
@@ -179,6 +346,7 @@ void ProcessTip::OnMouseEvent(wxMouseEvent& event)
         }
         event.Skip();
     }
+
 ProcessTip::ProcessTip()
 : wxPopupTransientWindow(wxGetApp().mainframe, wxBORDER_NONE)
 {
@@ -220,8 +388,11 @@ ProcessTip::ProcessTip()
     mainSizer->AddSpacer(FromDIP(8));
 
     m_ImgBox = new StaticBox(this, wxID_ANY, wxDefaultPosition);
-    m_ImgBox->SetBackgroundColour(is_dark ? wxColour("#313131"):wxColour("#313131"));
-    m_ImgBox->SetBorderWidth(1);
+    m_ImgBox->SetSize(FromDIP(contentWidth), FromDIP(contentWidth * 0.6));
+    m_ImgBox->SetMaxSize(wxSize(FromDIP(contentWidth), FromDIP(contentWidth * 0.6)));
+    m_ImgBox->SetMinSize(wxSize(FromDIP(contentWidth), FromDIP(contentWidth * 0.6)));
+    m_ImgBox->SetBackgroundColour(is_dark ? wxColour("#414143"):wxColour("#414143"));
+    m_ImgBox->SetBorderWidth(0);
     m_ImgBox->SetBorderColor(0x7A7A7F);
     m_ImgBox->SetCornerFlags(0xF);
     //m_ImgBox->SetSize(wxSize(226, 227));
@@ -236,18 +407,33 @@ ProcessTip::ProcessTip()
     ScalableBitmap sImg;
     if(!m_Content.CS_Image.empty())
         sImg = ScalableBitmap(m_ImgBox, m_Content.CS_Image.ToStdString(), 32);
-    m_ProcessImg = new wxStaticBitmap(m_ImgBox, wxID_ANY, sImg.bmp(), wxDefaultPosition,wxSize(FromDIP(242), FromDIP(334)), 0);
-    boxSizer->Add(m_ProcessImg);
+    m_ProcessImg = new wxStaticBitmap(m_ImgBox, wxID_ANY, sImg.bmp(), wxDefaultPosition,wxSize(FromDIP(300), FromDIP(147)), 0);
+    boxSizer->AddStretchSpacer();
+    boxSizer->Add(m_ProcessImg, 0, wxALIGN_CENTER_VERTICAL);
+    boxSizer->AddStretchSpacer();
+    //m_ProcessImg->SetBackgroundColour(wxColour(255, 0, 0));
 
-    m_Url_text = new wxHyperlinkCtrl(this, wxID_ANY, m_Content.CS_URL, m_Content.CS_URL);
-    m_Url_text->SetFont(Label::Body_12);
-    //m_Url_text->SetForegroundColour(fontColor);
-    m_Url_text->SetNormalColour(fontColor);    // ����״̬��ɫ
-    m_Url_text->SetVisitedColour(fontColor);   // ���ʺ���ɫ
-    m_Url_text->SetHoverColour(fontColor);     // ��ͣ״̬��ɫ
-    //m_Url_text->Wrap(FromDIP(226));
+    m_Url_text = new wxStaticText(this, wxID_ANY, m_Content.CS_URL, wxDefaultPosition, wxDefaultSize);
+    m_Url_text->SetSize({226, -1});
+    m_Url_text->SetMinSize({226, -1});
+    m_Url_text->SetMaxSize({226, -1});
+    m_Url_text->Wrap(FromDIP(226));
+    m_Url_text->SetFont(Label::Body_10);
+    // 设置超链接样式
+    wxColour linkColor(19, 91, 204);
+    m_Url_text->SetForegroundColour(linkColor);
+    wxFont tfont = m_Url_text->GetFont();
+    tfont.SetUnderlined(true);
+    m_Url_text->SetFont(tfont);
+    m_Url_text->SetCursor(wxCursor(wxCURSOR_HAND)); // 设置手型光标
+    m_Url_text->Wrap(FromDIP(226));
+    m_Url_text->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& event) {
+        wxLaunchDefaultBrowser(m_Content.CS_URL);
+        event.Skip(); 
+    });
 
-    mainSizer->Add(m_Url_text, 0, wxLEFT | wxRIGHT, FromDIP(8));
+
+    mainSizer->Add(m_Url_text, 0, wxLEFT | wxRIGHT | wxEXPAND, FromDIP(8));
     mainSizer->AddSpacer(FromDIP(8));
     SetSize(FromDIP(242), FromDIP(334));
 }
@@ -262,7 +448,7 @@ void ProcessTip::updateUI()
     m_Title_text->SetLabelText(m_Content.CS_Title);
     m_Content_text->SetLabelText(m_Content.CS_Content);
     m_Url_text->SetLabelText(m_Content.CS_URL);
-    m_Url_text->SetURL(m_Content.CS_URL);
+    //m_Url_text->SetURL(m_Content.CS_URL);
 
     if(m_Content.CS_Image.empty())
     {
@@ -271,52 +457,60 @@ void ProcessTip::updateUI()
         m_ImgBox->SetMinSize(wxSize(0, 0));
     }else
     {
-        m_ImgBox->SetSize(FromDIP(226), FromDIP(227));
-        m_ImgBox->SetMaxSize(wxSize(FromDIP(226), FromDIP(227)));
-        m_ImgBox->SetMinSize(wxSize(FromDIP(226), FromDIP(227)));
+        m_ImgBox->SetSize(FromDIP(contentWidth), FromDIP(contentWidth*0.6));
+        m_ImgBox->SetMaxSize(wxSize(FromDIP(contentWidth), FromDIP(contentWidth * 0.6)));
+        m_ImgBox->SetMinSize(wxSize(FromDIP(contentWidth), FromDIP(contentWidth * 0.6)));
     }
     m_ImgBox->Layout();
     m_ImgBox->Refresh();
     m_ImgBox->Update();
 
     int textWidth, textHeight;
-    std::function calcLineCount = [this, &textWidth, &textHeight](int wrapWidth, wxControl* control)
+    std::function calcLineCount = [this](int wrapWidth, wxControl* control)
     {
-        wxClientDC dc(control);
-        dc.SetFont(control->GetFont());
-        wxString text = control->GetLabel();
-        dc.GetTextExtent(text, &textWidth, &textHeight);
+            int textWidth, textHeight;
+            wxClientDC dc(control);
+            dc.SetFont(control->GetFont());
+            wxString text = control->GetLabel();
+            if(text=="")
+            {
+                return 0;
+            }
+            dc.GetTextExtent(text.SubString(0,1), &textWidth, &textHeight);
+            int nCount = text.Freq('\n');
+            int lineCount =  1 + nCount;
+            return lineCount*textHeight;
 
-        int nCount = text.Freq('\n');
-        int lineCount = textWidth/wrapWidth + 1 + nCount;
-        return lineCount;
     };
-    int lineCount = calcLineCount(FromDIP(226), m_Content_text);
+    textHeight = calcLineCount(FromDIP(contentWidth), m_Content_text);
+    m_Content_text->Wrap(FromDIP(contentWidth));
+    std::cout<<textHeight<<std::endl;
+    m_Content_text->SetSize(FromDIP(contentWidth), textHeight);
+    m_Content_text->SetMinSize({FromDIP(contentWidth), textHeight});
+    m_Content_text->SetMaxSize({FromDIP(contentWidth), textHeight});
 
-    m_Content_text->SetSize(FromDIP(226), textHeight*lineCount);
-    m_Content_text->SetMinSize({FromDIP(226), textHeight*lineCount});
-    m_Content_text->SetMaxSize({FromDIP(226), textHeight*lineCount});
+    textHeight = calcLineCount(FromDIP(contentWidth), m_Url_text);
 
-    lineCount = calcLineCount(FromDIP(226), m_Url_text);
-    m_Url_text->SetSize(FromDIP(226), textHeight * lineCount);
-    m_Url_text->SetMinSize({ FromDIP(226), textHeight * lineCount });
-    m_Url_text->SetMaxSize({ FromDIP(226), textHeight * lineCount });
+    
+    m_Url_text->SetSize(FromDIP(contentWidth), textHeight);
+    m_Url_text->SetMinSize({ FromDIP(contentWidth), textHeight });
+    m_Url_text->SetMaxSize({ FromDIP(contentWidth), textHeight });
 
     std::function createBitMap = [](const wxString& bmp_name_in, wxWindow* win, const int px_cnt, const wxSize imgSize)
     {
         bool        is_dark = Slic3r::GUI::wxGetApp().dark_mode();
         std::string lang    = wxGetApp().app_config->get("language");
         wxString    imgPath = bmp_name_in;
-        return create_scaled_bitmap3(imgPath.ToStdString(), win, 17, imgSize);
+        return create_scaled_bitmap3(imgPath.ToStdString(), win, px_cnt, imgSize);
     };
 
     if(!m_Content.CS_Image.empty())
     {
-        wxSize imgSize(FromDIP(150), FromDIP(120));
+        wxSize imgSize(FromDIP(300), FromDIP(147));
         wxBitmap* bmp = m_bitmap_cache->find(m_Content.CS_Image.ToStdString());
         if(bmp == nullptr)
         {
-            wxBitmap bitMap = createBitMap(m_Content.CS_Image, this, 17, wxSize());
+            wxBitmap bitMap = createBitMap(m_Content.CS_Image, this, 1, imgSize);
             bmp = m_bitmap_cache->insert(m_Content.CS_Image.ToStdString(),bitMap);
         }
         
@@ -324,17 +518,32 @@ void ProcessTip::updateUI()
         m_ProcessImg->SetBitmap(*bmp);
         m_ProcessImg->Refresh();
         m_ProcessImg->Update();
-        m_ProcessImg->Layout();
+        //m_ProcessImg->SetSize(FromDIP(242), FromDIP(334));
+        m_ImgBox->Show();
+        
+    }else{
+        m_ImgBox->Hide();
+        //m_ProcessImg->SetSize(FromDIP(242), FromDIP(0));
     }
-
+    m_ProcessImg->Layout();
     GetSizer()->Fit(this);
     wxSize size = GetBestSize();
-    SetSize(wxSize(FromDIP(242), size.GetHeight()));
+    
+    SetSize(wxSize(FromDIP(panelWidth), size.GetHeight()));
 
     themeChanged();
     Layout();
     Update();
     Refresh();
+    wxSize wsize = wxDisplay(this).GetClientArea().GetSize();
+    if (m_pos.y + this->GetSize().y > wsize.y-FromDIP(30))
+    {
+        wxPoint pos = m_pos;
+        pos.y = pos.y - (pos.y + this->GetSize().y -wsize.y)-FromDIP(30);
+        this->SetPosition(pos);
+    }else{
+        this->SetPosition(m_pos);
+    }    
 
 }
 
@@ -346,12 +555,7 @@ void ProcessTip::themeChanged()
     const wxColour fontColor = is_dark ? wxColour("#DBDBDB") : wxColour("#4E5969");
     m_Title_text->SetForegroundColour(fontColor);
     m_Content_text->SetForegroundColour(fontColor);
-    //m_Url_text->SetForegroundColour(fontColor);
-    m_ImgBox->SetBackgroundColour(is_dark ? wxColour("#313131"):wxColour("#e1e4e9"));
-
-    m_Url_text->SetNormalColour(fontColor);    // ����״̬��ɫ
-    m_Url_text->SetVisitedColour(fontColor);   // ���ʺ���ɫ
-    m_Url_text->SetHoverColour(fontColor);     // ��ͣ״̬��ɫ
+    m_ImgBox->SetBackgroundColour(is_dark ? wxColour("#414143"):wxColour("#e1e4e9"));
     m_Url_text->Refresh(); 
 }
 

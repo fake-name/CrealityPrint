@@ -188,7 +188,7 @@ enum ConfigOptionType {
 enum ConfigOptionMode {
     comSimple = 0,
     comAdvanced,
-    comDevelop,
+    comDevelop
 };
 
 enum PrinterTechnology : unsigned char
@@ -390,9 +390,8 @@ public:
         for (const ConfigOption *opt : rhs) {
             if (opt->type() == this->type()) {
                 auto other = static_cast<const ConfigOptionVector<T>*>(opt);
-                if (other->values.empty())
-                    throw ConfigurationError("ConfigOptionVector::set(): Assigning from an empty vector");
-                this->values.emplace_back(other->values.front());
+                if (!other->values.empty())
+                    this->values.emplace_back(other->values.front());
             } else if (opt->type() == this->scalar_type())
                 this->values.emplace_back(static_cast<const ConfigOptionSingle<T>*>(opt)->value);
             else

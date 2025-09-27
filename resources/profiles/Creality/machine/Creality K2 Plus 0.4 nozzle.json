@@ -108,5 +108,6 @@
     "z_hop": "0.4",
     "z_hop_types": "Auto Lift",
     "name": "Creality K2 Plus 0.4 nozzle",
-    "setting_id": "06532"
+    "setting_id": "20956",
+	"multicolor_method": "1"
 }

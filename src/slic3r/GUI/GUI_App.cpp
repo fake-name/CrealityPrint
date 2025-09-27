@@ -107,6 +107,7 @@
 #include "../Utils/UndoRedo.hpp"
 #include "../Utils/ProfileFamilyLoader.hpp"
 #include "../Utils/TestHelper.hpp"
+#include "../Utils/mouse_scheme.hpp"
 #include "slic3r/Config/Snapshot.hpp"
 #include "Preferences.hpp"
 #include "ConfigRelateDialog.hpp"
@@ -1038,7 +1039,7 @@ bool GUI_App::send_app_message(const std::string& msg,bool bforce)
     {
         //only send message when the mainframe is active
         return false;
-    }
+    }   
 #ifdef __APPLE__
     std::cout << "Request received: ";
     send_message_mac(msg,get_instance_hash_string());
@@ -1130,7 +1131,7 @@ void GUI_App::post_login_status_cmd(bool isSuccess, UserInfo user)
     else {
         m_Res["user_info"] = nullptr;
     }
-    wxString strJS        = wxString::Format("window.handleStudioCmd(%s)", m_Res.dump(-1, ' ', false, json::error_handler_t::ignore));
+    wxString strJS        = wxString::Format("window.handleStudioCmd(%s)", m_Res.dump(-1, ' ', true, json::error_handler_t::ignore));
     GUI::wxGetApp().run_script(strJS);
 }
 
@@ -1527,7 +1528,11 @@ GUI_App::GUI_App(bool enable_test /*= false*/)
 #if wxUSE_WEBVIEW_EDGE
     this->init_webview_runtime();
 #endif
+    initDevelopParams();
     reset_to_active();
+#ifdef __APPLE__
+    Slic3r::GUI::register_receive_mac([](const std::string& m) { wxGetApp().on_interinstance_message(m); });
+#endif
 }
 
 void GUI_App::shutdown()
@@ -2478,7 +2483,7 @@ std::string GetMACAddress() {
             pAdapterInfo = pAdapterInfo->Next;
         }
     }
-
+    boost::replace_all(result, ":", "_");
     return result;
 }
 #elif defined(__APPLE__)
@@ -2842,6 +2847,92 @@ void GUI_App::on_start_subscribe_again(std::string dev_id)
     start_subscribe_timer->Start(4000, wxTIMER_ONE_SHOT);
 }
 
+void GUI_App::openDevelopMode(bool open)
+{    
+    if(isAlpha())
+        return;
+
+    app_config->set("role_type", "1");
+    update_develop_state();
+}
+
+void GUI_App::initDevelopParams()
+{
+    app_config->set("is_factory_mode", "false");
+    app_config->save();
+    boost::filesystem::path path_resources = resources_dir();
+    boost::filesystem::path creality_file = boost::filesystem::path(path_resources.string()).append("profiles").append("CrealityUserMode.json");
+    if (boost::filesystem::exists(creality_file))
+    {
+        try {
+            boost::nowide::ifstream t(creality_file.string());
+            std::stringstream buffer;
+            buffer << t.rdbuf();
+            json jLocal = json::parse(buffer.str());
+            auto paramsList = jLocal["params_list"];
+            for (const auto& item : paramsList)
+            {
+                std::string paramsKey = item["key"];
+                std::string paramType = item["type"];
+                m_DevelopParamslist.insert(std::make_pair(paramsKey, paramType));
+            }
+        }
+        catch (std::exception e) {
+
+        }
+
+    }
+}
+
+bool GUI_App::isAlpha()
+{
+    std::string version = std::string(PROJECT_VERSION_EXTRA);
+    bool        is_alpha = boost::algorithm::icontains(version, "alpha");
+    return is_alpha;
+}
+
+bool GUI_App::isDevelopParams(const std::string key)
+{
+    std::string processed_key = key;
+    size_t pos = processed_key.find("#0");
+    if (pos != std::string::npos) {
+        processed_key.erase(pos, 2);
+    }
+
+    pos = processed_key.find("#1");
+    if (pos != std::string::npos) {
+        processed_key.erase(pos, 2);
+    }
+
+    auto it = wxGetApp().m_DevelopParamslist.find(processed_key);
+    if (it != wxGetApp().m_DevelopParamslist.end())
+    {
+        return true;
+    }
+	return false;
+}
+
+std::string GUI_App::getDevelopParamsType(const std::string key)
+{
+    std::string processed_key = key;
+    size_t pos = processed_key.find("#0");
+    if (pos != std::string::npos) {
+        processed_key.erase(pos, 2);
+    }
+
+    pos = processed_key.find("#1");
+    if (pos != std::string::npos) {
+        processed_key.erase(pos, 2);
+    }
+
+    auto it = wxGetApp().m_DevelopParamslist.find(processed_key);
+    if (it != wxGetApp().m_DevelopParamslist.end())
+    {
+        return it->second;
+    }
+    return "";
+}
+
 std::string GUI_App::get_local_models_path()
 {
     std::string local_path = "";
@@ -2869,6 +2960,7 @@ void GUI_App::init_single_instance_checker(const std::string &name, const std::s
 
 bool GUI_App::OnInit()
 {
+    system_memory_stats(__FUNCTION__);
     try {
         m_app_start_time = std::chrono::steady_clock::now();
         #ifdef _WIN32
@@ -2902,18 +2994,23 @@ bool GUI_App::OnInit()
                     err_report_dialog->setDumpFilePath(file);
                     int result = err_report_dialog->ShowModal();
                     m_send_crash_report = (result == wxID_OK ? true : false);
+                    // Mark software crash for deferred analytics upload on next normal start
+                    wxGetApp().app_config->set_bool("software_crash", true);
+                    wxGetApp().app_config->save();
                     // software crash, upload analytics data here
                     AnalyticsDataUploadManager::getInstance().triggerUploadTasks(AnalyticsUploadTiming::ON_SOFTWARE_CRASH,{ AnalyticsDataEventType::ANALYTICS_SOFTWARE_CRASH });
-
+                    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " result is " << result;
                     if (result == wxID_OK) {
                         err_report_dialog->sendReport();
                         err_report_dialog->Destroy();
+                        boost::log::core::get()->flush();
                         #ifdef _WIN32
                         fl.unlock();
                         #endif
                         return true;
                     }else{
                         err_report_dialog->Destroy();
+                        boost::log::core::get()->flush();
                         #ifdef _WIN32
                         fl.unlock();
                         #endif
@@ -3150,6 +3247,7 @@ bool GUI_App::on_init_inner(bool isdump_launcher)
     wxGetApp().Update_dark_mode_flag();
     if (isdump_launcher)
     {
+        check_creality_privacy_version(false);
         return true;
     }
     //return true;
@@ -5628,15 +5726,31 @@ std::string GUI_App::handle_web_request(std::string cmd)
                     wxString strJS = wxString::Format("window.handleStudioCmd(%s)", m_Res.dump(-1, ' ', true));
                     GUI::wxGetApp().run_script(strJS);
 
-                    // when reload_homepage() is called, will trigger  this "get_account_info", so we use  m_app_launch_initialized to make sure only upload once
-                    if(wxGetApp().is_privacy_checked() && !m_app_launch_initialized) {
-                        m_app_launch_initialized = true;
-                        GUI::wxGetApp().check_app_first_launch_info();
-                        // software launch, upload analytics data here
-                        AnalyticsDataUploadManager::getInstance().triggerUploadTasks(AnalyticsUploadTiming::ON_SOFTWARE_LAUNCH,{ AnalyticsDataEventType::ANALYTICS_SOFTWARE_LAUNCH,AnalyticsDataEventType::ANALYTICS_ACCOUNT_DEVICE_INFO });
+                    wxTimer* timer = new wxTimer();
+                    timer->Bind(wxEVT_TIMER, [this, timer](wxTimerEvent&) {
+                        // when reload_homepage() is called, will trigger  this "get_account_info", so we use  m_app_launch_initialized to
+                        // make sure only upload once
+                        if (wxGetApp().is_privacy_checked() && !m_app_launch_initialized) {
+                            m_app_launch_initialized = true;
+                            GUI::wxGetApp().check_app_first_launch_info();
+                            // software launch, upload analytics data here
+                            AnalyticsDataUploadManager::getInstance()
+                                .triggerUploadTasks(AnalyticsUploadTiming::ON_SOFTWARE_LAUNCH,
+                                                    {AnalyticsDataEventType::ANALYTICS_SOFTWARE_LAUNCH,
+                                                     AnalyticsDataEventType::ANALYTICS_ACCOUNT_DEVICE_INFO});
 
-            
-                    }
+                            if (wxGetApp().app_config->get_bool("software_crash")) {
+                                AnalyticsDataUploadManager::getInstance()
+                                    .triggerUploadTasks(AnalyticsUploadTiming::ON_SOFTWARE_CRASH,
+                                                        {AnalyticsDataEventType::ANALYTICS_SOFTWARE_CRASH});
+                                wxGetApp().app_config->set_bool("software_crash", false);
+                                wxGetApp().app_config->save();
+                            }
+                        }
+                        timer->Stop();
+                        delete timer;
+                    });
+                    timer->StartOnce(8000);
 
                 });
 
@@ -5722,6 +5836,7 @@ std::string GUI_App::handle_web_request(std::string cmd)
                          CallAfter([this] {
                             send_app_message("logout");
                          });
+                         mainframe->get_printer_mgr_view()->destoryMqtt();
                      app_config->set("sync_user_preset", "false");
                  }
 
@@ -6252,11 +6367,14 @@ std::string GUI_App::handle_web_request(std::string cmd)
                 c << std::setw(4) << cache_json << std::endl;
                 c.close();
                 CallAfter([this] { 
-                auto* app_config = GUI::wxGetApp().app_config;
-                GUI::wxGetApp().preset_bundle->load_presets(*app_config,
-                                                                ForwardCompatibilitySubstitutionRule::EnableSilentDisableSystem);
-                GUI::wxGetApp().load_current_presets();
-                GUI::wxGetApp().plater()->set_bed_shape();
+                if(!wxGetApp().preset_bundle->printers.get_edited_preset().is_dirty&&!wxGetApp().preset_bundle->filaments.get_edited_preset().is_dirty&&!wxGetApp().preset_bundle->prints.get_edited_preset().is_dirty)
+                {
+                    auto* app_config = GUI::wxGetApp().app_config;
+                    GUI::wxGetApp().preset_bundle->load_presets(*app_config,
+                                                                    ForwardCompatibilitySubstitutionRule::EnableSilentDisableSystem);
+                    GUI::wxGetApp().load_current_presets();
+                    GUI::wxGetApp().plater()->set_bed_shape();
+                }
                 UpdateParams::getInstance().hasUpdateParams();
                 });
             }
@@ -6675,6 +6793,12 @@ std::string GUI_App::handle_web_request(std::string cmd)
                 wxGetApp().CallAfter([this, strJS] { run_script(strJS.ToStdString()); });
             } else if (command_str.compare("get_machine_list") == 0) {
                 load_machine_preset_data();
+            } else if (command_str.compare("set_user_login_area") == 0) {
+                json        regionData = json::parse(strInput);
+                std::string region = regionData["region"];
+                AppConfig* config = GUI::wxGetApp().app_config;
+                config->set("region", region);
+                wxGetApp().update_publish_status();
             }
         }
     }
@@ -8940,6 +9064,20 @@ void GUI_App::save_mode(const /*ConfigOptionMode*/ int mode, bool need_save)
     update_mode(mode);
 }
 
+void GUI_App::update_develop_state()
+{
+    std::string mode = app_config->get("user_mode");
+    ConfigOptionMode savedMode = mode == "develop" ? comDevelop : 
+                                mode == "advanced" ? comAdvanced :
+                                mode == "comSimple" ? comSimple : comAdvanced;
+
+
+    std::string isDevelop = app_config->get("is_factory_mode");
+    app_config->set("is_factory_mode", isDevelop == "true" ? "false" : "true");
+    app_config->save();
+    update_mode(savedMode);
+}
+
 // Update view mode according to selected menu
 void GUI_App::update_mode(const int mode)
 {
@@ -10645,6 +10783,9 @@ void GUI_App::start_download(std::string url)
     }
     //lets always init so if the download dest folder was changed, new dest is used
     boost::filesystem::path dest_folder(app_config->get("download_path"));
+    if (!boost::filesystem::exists(dest_folder)) {
+		    boost::filesystem::create_directory(dest_folder);
+	    }
     if (dest_folder.empty() || !boost::filesystem::is_directory(dest_folder)) {
         std::string msg = _u8L("Could not start URL download. Destination folder is not set. Please choose destination folder in Configuration Wizard.");
         BOOST_LOG_TRIVIAL(error) << msg;
@@ -10770,6 +10911,41 @@ int GUI_App::load_machine_preset_data()
             .perform_sync();
     }
     return 0;
+}
+
+//mouse scheme
+void GUI_App::on_interinstance_message(const std::string& msg)
+{
+    static constexpr const char* kPrefix = "CP_MOUSE_SCHEME=";
+    if (msg.rfind(kPrefix, 0) == 0) { 
+        int scheme = 0;
+        try {
+            scheme = std::stoi(msg.substr(std::strlen(kPrefix)));
+        } catch (...) {
+            return;
+        }
+
+        if (app_config)
+            app_config->set("mouse_scheme", scheme ? "1" : "0");
+
+        if (auto* plater = this->plater()) {
+            auto apply = [&](Slic3r::GUI::GLCanvas3D* c) {
+                if (!c)
+                    return;
+                c->set_mouse_scheme(scheme);
+                if (auto* win = c->get_wxglcanvas()) {
+                    win->Refresh(false);
+#ifdef __WXMSW__
+                    win->Update();
+#endif
+                }
+            };
+            apply(plater->get_view3D_canvas3D());
+            apply(plater->get_preview_canvas3D());
+            apply(plater->get_assmeble_canvas3D());
+            apply(plater->get_current_canvas3D(false));
+        }
+    }
 }
 
 } // GUI

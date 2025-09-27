@@ -42,6 +42,8 @@ public:
 
 	struct ToolChangeResult
 	{
+        float m_wipe_max_y;
+		float m_wipe_max_x;
 		// Print heigh of this tool change.
 		float					print_z;
 		float 					layer_height;

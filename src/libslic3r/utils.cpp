@@ -42,6 +42,15 @@
 	#endif
 #endif
 
+
+#ifdef __linux__
+#include <unistd.h>
+#include <sys/sysinfo.h>
+#elif __APPLE__
+#include <mach/mach_host.h>
+#include <sys/sysctl.h>
+#endif
+
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
@@ -1537,6 +1546,76 @@ size_t total_physical_memory()
 
 #else
 	return 0L;			// Unknown OS.
+#endif
+}
+
+SystemMemoryStats system_memory_stats(std::string text)
+{
+    SystemMemoryStats stats{};
+#if defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status)) {
+        stats.total_bytes = (size_t)status.ullTotalPhys;
+        stats.available_bytes = (size_t)status.ullAvailPhys;
+        stats.valid = true;
+    } else {
+        stats.valid = false;
+    }
+#else
+    // �� Windows ƽ̨�ݲ�ʵ�֣����ֽӿڴ����ҿ����Կ��жϡ�
+    stats.valid = false;
+#endif
+    BOOST_LOG_TRIVIAL(warning) << text << " memory total_bytes " << stats.total_bytes << " memory available_bytes "
+                               << stats.available_bytes;
+    boost::log::core::get()->flush();
+    return stats;
+}
+
+
+size_t available_physical_memory() 
+{
+#if defined(_WIN32) && (defined(__CYGWIN__) || defined(__CYGWIN32__))
+    // Cygwin under Windows. ------------------------------------
+    // New 64-bit MEMORYSTATUSEX isn't available.  Use old 32.bit
+    MEMORYSTATUS status;
+    status.dwLength = sizeof(status);
+    GlobalMemoryStatus(&status);
+    return (size_t) status.dwAvailPhys;
+#elif defined(_WIN32)
+    // Windows. -------------------------------------------------
+    // Use new 64-bit MEMORYSTATUSEX, not old 32-bit MEMORYSTATUS
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    GlobalMemoryStatusEx(&status);
+    return (size_t) status.ullAvailPhys;
+
+#elif defined(__linux__)
+    struct sysinfo info;
+    if (sysinfo(&info) == 0) {
+        return info.freeram * info.mem_unit;
+    }
+	return 0L;
+#elif defined(__APPLE__)
+    int      mib[2] = {CTL_HW, HW_MEMSIZE};
+    uint64_t memsize;
+    size_t   len = sizeof(memsize);
+    if (sysctl(mib, 2, &memsize, &len, NULL, 0) == 0) {
+        vm_size_t              page_size;
+        mach_port_t            mach_port;
+        mach_msg_type_number_t count;
+        vm_statistics64_data_t vm_stats;
+
+        mach_port = mach_host_self();
+        count     = sizeof(vm_stats) / sizeof(natural_t);
+        if (host_page_size(mach_port, &page_size) == KERN_SUCCESS &&
+            host_statistics64(mach_port, HOST_VM_INFO, (host_info64_t) &vm_stats, &count) == KERN_SUCCESS) {
+            return (vm_stats.free_count + vm_stats.inactive_count) * page_size;
+        }
+    }
+	return 0L;
+#else
+    return 0L; // Unknown OS.
 #endif
 }
 

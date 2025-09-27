@@ -91,6 +91,7 @@ public:
     coord_t     loop_clipping;
     // In scaled coordinates. Bounding box of the 2D projection of the object.
     BoundingBox bounding_box;
+    coord_t     bounding_box_height;
 
     // Octree builds on mesh for usage in the adaptive cubic infill
     FillAdaptive::Octree* adapt_fill_octree = nullptr;
@@ -115,6 +116,7 @@ public:
     static bool  use_bridge_flow(const InfillPattern type);
 
     void         set_bounding_box(const Slic3r::BoundingBox &bbox) { bounding_box = bbox; }
+    void         set_bounding_box_height(coord_t height) { bounding_box_height = height; }
 
     // Use bridge flow for the fill?
     virtual bool use_bridge_flow() const { return false; }

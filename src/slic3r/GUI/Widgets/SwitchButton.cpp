@@ -122,7 +122,9 @@ void SwitchButton::Rescale()
             wxBitmap bmp(std::move(image));
             memdc.SelectObject(bmp);
 #endif
-            memdc.SetFont(dc.GetFont());
+            wxFont font = dc.GetFont();
+            font.SetPointSize(9);
+            memdc.SetFont(font);
             if (fontScale) {
                 memdc.SetFont(dc.GetFont().Scaled(fontScale));
                 textSize[0] = memdc.GetTextExtent(labels[0]);

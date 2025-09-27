@@ -5,6 +5,7 @@
 #include "GCodeWriter.hpp"
 #include "Format/3mf.hpp"
 #include "Format/STEP.hpp"
+#include <boost/log/trivial.hpp>
 
 // Transtltion
 #include "I18N.hpp"
@@ -496,6 +497,7 @@ ModelObject* Model::add_object(const ModelObject &other)
 void Model::delete_object(size_t idx)
 {
     ModelObjectPtrs::iterator i = this->objects.begin() + idx;
+    BOOST_LOG_TRIVIAL(warning) << "Model::delete_object(idx=" << idx << ") - Object name: '" << (*i)->name << "', ID: " << (*i)->id().id << ", volumes: " << (*i)->volumes.size() << ", instances: " << (*i)->instances.size() << ", layer_config_ranges: " << (*i)->layer_config_ranges.size();
     // BBS: backup
     Slic3r::delete_object_mesh(**i);
     delete *i;
@@ -508,6 +510,7 @@ bool Model::delete_object(ModelObject* object)
         size_t idx = 0;
         for (ModelObject *model_object : objects) {
             if (model_object == object) {
+                BOOST_LOG_TRIVIAL(warning) << "Model::delete_object(ptr) - Object name: '" << model_object->name << "', ID: " << model_object->id().id << ", volumes: " << model_object->volumes.size() << ", instances: " << model_object->instances.size() << ", layer_config_ranges: " << model_object->layer_config_ranges.size() << ", idx: " << idx;
                 // BBS: backup
                 Slic3r::delete_object_mesh(*model_object);
                 delete model_object;
@@ -526,6 +529,7 @@ bool Model::delete_object(ObjectID id)
         size_t idx = 0;
         for (ModelObject *model_object : objects) {
             if (model_object->id() == id) {
+                BOOST_LOG_TRIVIAL(warning) << "Model::delete_object(ID=" << id.id << ") - Object name: '" << model_object->name << "', volumes: " << model_object->volumes.size() << ", instances: " << model_object->instances.size() << ", layer_config_ranges: " << model_object->layer_config_ranges.size() << ", idx: " << idx;
                 // BBS: backup
                 Slic3r::delete_object_mesh(*model_object);
                 delete model_object;
@@ -540,7 +544,9 @@ bool Model::delete_object(ObjectID id)
 
 void Model::clear_objects()
 {
+    BOOST_LOG_TRIVIAL(warning) << "Model::clear_objects() - Clearing " << this->objects.size() << " objects";
     for (ModelObject* o : this->objects) {
+        BOOST_LOG_TRIVIAL(warning) << "Model::clear_objects() - Deleting object name: '" << o->name << "', ID: " << o->id().id << ", volumes: " << o->volumes.size() << ", instances: " << o->instances.size() << ", layer_config_ranges: " << o->layer_config_ranges.size();
         // BBS: backup
         Slic3r::delete_object_mesh(*o);
         delete o;

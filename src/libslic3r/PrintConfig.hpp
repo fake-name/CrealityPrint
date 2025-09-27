@@ -64,8 +64,24 @@ enum AuthorizationType {
 enum InfillPattern : int {
     ipConcentric, ipRectilinear, ipGrid, ipLine, ipCubic, ipTriangles, ipStars, ipGyroid, ipHoneycomb, ipAdaptiveCubic, ipMonotonic, ipMonotonicLine, ipAlignedRectilinear, ip3DHoneycomb,
     ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipSupportCubic, ipSupportBase, ipConcentricInternal,
-    ipLightning, ipCrossHatch,ipCross,ipCross3d, ipquarter_cubic, iptetrahedral,ipTpmsD,
-    ipCount,
+    ipLightning,
+    ipCrossHatch,
+    ipCross,
+    ipCross3d,
+    ipquarter_cubic,
+    iptetrahedral,
+    ipTpmsD,
+    ipGradualTpmsG,
+    ipGradualTpmsD,
+    ipGradualTpmsFKS,
+    ipCount
+};
+
+enum GradualDirection : int {
+    GradualDir_X,
+    GradualDir_Y,
+    GradualDir_Z,
+    GradualDir_count
 };
 
 enum class IroningType {
@@ -469,8 +485,9 @@ public:
     // BBS
     const std::vector<std::string>& filament_option_keys() const { return m_filament_option_keys; }
     const std::vector<std::string>& filament_retract_keys() const { return m_filament_retract_keys; }
-
 private:
+	void resetParamsProirity();
+    void getPriorityByKey(const std::string key, std::string& priority, std::string& isEdited);
     void init_common_params();
     void init_fff_params();
     void init_extruder_option_keys();
@@ -943,7 +960,10 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                solid_infill_direction))
     ((ConfigOptionBool,                 rotate_solid_infill_direction)) 
     ((ConfigOptionBool,                 ai_infill))
-    ((ConfigOptionPercent,              sparse_infill_density))
+    ((ConfigOptionPercent,              sparse_infill_density)) 
+    ((ConfigOptionPercent,              tpms_start_infill_density)) 
+    ((ConfigOptionPercent,              tpms_end_infill_density)) 
+    ((ConfigOptionEnum<GradualDirection>, tpms_gradual_direction))
     ((ConfigOptionEnum<InfillPattern>,  sparse_infill_pattern))
     ((ConfigOptionEnum<FuzzySkinType>,  fuzzy_skin))
     ((ConfigOptionFloat,                fuzzy_skin_thickness))
@@ -955,6 +975,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionPercent,              infill_wall_overlap))
     ((ConfigOptionPercent,              top_bottom_infill_wall_overlap))
     ((ConfigOptionFloat,                sparse_infill_speed))
+    ((ConfigOptionFloatOrPercent,       external_infill_margin))
     //BBS
     ((ConfigOptionBool, infill_combination))
     //// Orca:
@@ -1385,7 +1406,8 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionPoint,               bed_mesh_max))
     ((ConfigOptionPoint,               bed_mesh_probe_distance))
     ((ConfigOptionFloat,               adaptive_bed_mesh_margin))
-
+    ((ConfigOptionFloat,              default_flush_multiplier))
+    ((ConfigOptionBool,               multicolor_method))
 
 )
 

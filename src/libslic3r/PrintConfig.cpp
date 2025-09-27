@@ -133,6 +133,16 @@ static t_config_enum_values s_keys_map_FuzzySkinType {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FuzzySkinType)
 
+
+static t_config_enum_values s_keys_map_GradualDirection {
+    {"gradualdir_x", int(GradualDirection::GradualDir_X)},
+    {"gradualdir_y",  int(GradualDirection::GradualDir_X)},
+    {"gradualdir_z",  int(GradualDirection::GradualDir_Y)}
+};                   
+
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(GradualDirection)
+
+
 static t_config_enum_values s_keys_map_InfillPattern {
     { "concentric",         ipConcentric },
     { "zig-zag",            ipRectilinear },
@@ -143,6 +153,9 @@ static t_config_enum_values s_keys_map_InfillPattern {
     { "tri-hexagon",        ipStars },
     { "gyroid",             ipGyroid },
     { "tpmsd",              ipTpmsD},
+    {"tpms_gradual_g",        ipGradualTpmsG},
+    {"tpms_gradual_d",        ipGradualTpmsD},
+    {"tpms_gradual_fks",      ipGradualTpmsFKS},
     { "honeycomb",          ipHoneycomb },
     { "adaptivecubic",      ipAdaptiveCubic },
     { "monotonic",          ipMonotonic },
@@ -1697,6 +1710,17 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(40));
 
+    def = this->add("default_flush_multiplier", coFloat);
+    def->min = 0;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(1.3));
+
+    def   = this->add("multicolor_method", coBool);
+    def->label   = L("multicolor method");
+    def->tooltip = L("multicolor method");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     // BBS
     def = this->add("extruder_clearance_height_to_lid", coFloat);
     def->label = L("Height to lid");
@@ -2277,6 +2301,40 @@ void PrintConfigDef::init_fff_params()
     def->max = 100;
     def->set_default_value(new ConfigOptionPercent(20));
 
+    def           = this->add("tpms_start_infill_density", coPercent);
+    def->label    = L("Start sparse infill density");
+    def->category = L("Strength");
+    def->tooltip = L("Start sparse infill density in range(1-99)");
+    def->sidetext = L("%");
+    def->min      = 1;
+    def->max      = 99;
+    def->set_default_value(new ConfigOptionPercent(8));
+
+    def           = this->add("tpms_end_infill_density", coPercent);
+    def->label    = L("End sparse infill density");
+    def->category = L("Strength");
+    def->tooltip = L("End sparse infill density in range(1-99)");
+    def->sidetext = L("%");
+    def->min      = 1;
+    def->max      = 99;
+    def->set_default_value(new ConfigOptionPercent(15));
+
+
+    def                = this->add("tpms_gradual_direction", coEnum);
+    def->label         = L("Gradual direction");
+    def->category      = L("Strength");
+    def->tooltip       = L("Gradual direction");
+    def->enum_keys_map = &ConfigOptionEnum<GradualDirection>::get_enum_values();
+    def->enum_values.push_back("gradualdir_x");
+    def->enum_values.push_back("gradualdir_y");
+    def->enum_values.push_back("gradualdir_z");
+    def->enum_labels.push_back(L("x-axis"));
+    def->enum_labels.push_back(L("y-axis"));
+    def->enum_labels.push_back(L("z-axis"));
+    def->set_default_value(new ConfigOptionEnum<GradualDirection>(GradualDir_X));
+
+
+
     def           = this->add("ai_infill", coBool);
     def->label    = L("AI infill");
     def->category = L("Strength");
@@ -2312,8 +2370,10 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("quarter_cubic");
     def->enum_values.push_back("tetrahedral");
     def->enum_values.push_back("tpmsd");
-
-
+    def->enum_values.push_back("tpms_gradual_g");
+    def->enum_values.push_back("tpms_gradual_d");
+    def->enum_values.push_back("tpms_gradual_fks");
+    
     def->enum_labels.push_back(L("Concentric"));
     def->enum_labels.push_back(L("Rectilinear"));
     def->enum_labels.push_back(L("Grid"));
@@ -2337,7 +2397,10 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.push_back(L("Quarter Cubic"));
     def->enum_labels.push_back(L("Tetrahedral"));
     def->enum_labels.push_back(L("TpmsD"));
-    def->set_default_value(new ConfigOptionEnum<InfillPattern>(ipCross3d));
+    def->enum_labels.push_back("Gradual TPMS-G");
+    def->enum_labels.push_back("Gradual TPMS-D");
+    def->enum_labels.push_back("Gradual TPMS-FKS");
+	def->set_default_value(new ConfigOptionEnum<InfillPattern>(ipGrid));
 
     auto def_infill_anchor_min = def = this->add("infill_anchor", coFloatOrPercent);
     def->label = L("Sparse infill anchor length");
@@ -3025,6 +3088,17 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(100));
 
+    def = this->add("external_infill_margin", coFloatOrPercent);
+    def->label = L("Anchor solid infill by X mm");
+    def->category = L("Strength");
+    def->tooltip  = L("This parameter grows the top/bottom/solid layers by the specified mm to anchor them into the sparse infill and support the perimeters above."
+                       " Put 0 to deactivate it. Can be a % of the width of the perimeters.");
+    def->sidetext = L("mm or %");
+    def->ratio_over  = "line_width";
+    def->min      = 0;
+    def->max_literal = 50;
+    def->set_default_value(new ConfigOptionFloatOrPercent());
+
     def = this->add("inherits", coString);
     //def->label = L("Inherits profile");
     def->label = "Inherits profile";
@@ -3465,15 +3539,15 @@ void PrintConfigDef::init_fff_params()
     def->set_default_value(new ConfigOptionString("[[100,150,100,6000],[150,200,80,5500],[200,250,60,5000]]"));
 
     def           = this->add("acceleration_limit_mess_enable", coBool);
-    def->category = L("Weight limit speed and acceleration Enable");
-    def->label    = L("Weight limit speed and acceleration Enable");
-    def->tooltip  = L("Weight limit speed and acceleration Enable");
+    def->category = L("Weight limit speed and acceleration");
+    def->label    = L("Weight limit speed and acceleration");
+    def->tooltip  = L("Weight limit speed and acceleration");
     def->set_default_value(new ConfigOptionBool(false));
 
     def           = this->add("speed_limit_to_height_enable", coBool);
-    def->category = L("Height limit speed and acceleration Enable");
-    def->label    = L("Height limit speed and acceleration Enable");
-    def->tooltip  = L("Height limit speed and acceleration Enable");
+    def->category = L("Height limit speed and acceleration");
+    def->label    = L("Height limit speed and acceleration");
+    def->tooltip  = L("Height limit speed and acceleration");
     def->set_default_value(new ConfigOptionBool(false));
 
     def           = this->add("material_flow_dependent_temperature", coBools);
@@ -3911,22 +3985,22 @@ void PrintConfigDef::init_fff_params()
     def->set_default_value(new ConfigOptionFloats { 0.8 });
 
     def = this->add("enable_long_retraction_when_cut",coInt);
-    def->mode = comDevelop;
-    def->set_default_value(new ConfigOptionInt {0});
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionInt {2});
 
     def = this->add("long_retractions_when_cut", coBools);
     def->label = L("Long retraction when cut(experimental)");
     def->tooltip = L("Experimental feature.Retracting and cutting off the filament at a longer distance during changes to minimize purge."
                      "While this reduces flush significantly, it may also raise the risk of nozzle clogs or other printing problems.");
-    def->mode = comDevelop;
+    def->mode    = comSimple;
     def->set_default_value(new ConfigOptionBools {false});
 
     def = this->add("retraction_distances_when_cut",coFloats);
     def->label = L("Retraction distance when cut");
     def->tooltip = L("Experimental feature.Retraction length before cutting off during filament change");
-    def->mode = comDevelop;
+    def->mode    = comSimple;
     def->min = 10;
-    def->max = 18;
+    def->max = 30;
     def->set_default_value(new ConfigOptionFloats {18});
 
     def = this->add("retract_length_toolchange", coFloats);
@@ -6589,8 +6663,6 @@ void PrintConfigDef::handle_legacy(t_config_option_key &opt_key, std::string &va
     }
 	else if (opt_key == "draft_shield" && value == "limited") {
         value = "disabled";
-    } else if (opt_key == "overhang_speed_classic") {
-        value = "0";
     }
 
     // Ignore the following obsolete configuration keys:
@@ -8069,12 +8141,23 @@ static std::map<t_custom_gcode_key, t_config_option_keys> s_CustomGcodeSpecificP
     {"layer_change_gcode",          {"layer_num", "layer_z", "max_layer_z"}},
     {"timelapse_gcode",             {"layer_num", "layer_z", "max_layer_z"}},
     {"change_filament_gcode",       {"layer_num", "layer_z", "max_layer_z", "next_extruder", "previous_extruder", "fan_speed",
-                               "first_flush_volume", "flush_length", "flush_length_1", "flush_length_2", "flush_length_3", "flush_length_4",
+                               "first_flush_volume", "flush_length", "flush_length_1", "flush_length_2", "flush_length_3", "flush_length_4","flush_length_5",
                                "new_filament_e_feedrate", "new_filament_temp", "new_retract_length",
                                "new_retract_length_toolchange", "old_filament_e_feedrate", "old_filament_temp", "old_retract_length",
                                "old_retract_length_toolchange", "relative_e_axis", "second_flush_volume", "toolchange_count", "toolchange_z",
-                               "travel_point_1_x", "travel_point_1_y", "travel_point_2_x", "travel_point_2_y", "travel_point_3_x",
-                               "travel_point_3_y", "x_after_toolchange", "y_after_toolchange", "z_after_toolchange"}},
+      "travel_point_1_x",
+      "travel_point_1_y",
+      "travel_point_2_x",
+      "travel_point_2_y",
+      "travel_point_3_x",
+      "wipe_tower_start_position_x",
+      "wipe_tower_start_position_y",
+      "travel_point_3_y",
+      "wipe_tower_random_num",
+      "wipe_tower_outer_wall_x",
+      "wipe_tower_outer_wall_y" ,"x_after_toolchange",
+      "y_after_toolchange",
+      " z_after_toolchange "}},
     {"change_extrusion_role_gcode", {"layer_num", "layer_z", "extrusion_role", "last_extrusion_role"}},
     {"printing_by_object_gcode",    {}},
     {"machine_pause_gcode",         {}},
@@ -8084,12 +8167,20 @@ static std::map<t_custom_gcode_key, t_config_option_keys> s_CustomGcodeSpecificP
     {"filament_end_gcode",          {"layer_num", "layer_z", "max_layer_z", "filament_extruder_id"}},
     {"tcr_rotated_gcode",           {"filament_end_gcode", "change_filament_gcode", "filament_start_gcode", "deretraction_from_wipe_tower_generator",
                                      "layer_num", "layer_z", "max_layer_z", "next_extruder", "previous_extruder","fan_speed","first_flush_volume",
-                                     "second_flush_volume","flush_length", "flush_length_1", "flush_length_2", "flush_length_3", "flush_length_4",
+                                     "second_flush_volume","flush_length", "flush_length_1", "flush_length_2", "flush_length_3", "flush_length_4","flush_length_5",
                                      "new_filament_e_feedrate", "new_filament_temp", "new_retract_length",
                                      "new_retract_length_toolchange", "old_filament_e_feedrate", "old_filament_temp", "old_retract_length",
                                      "old_retract_length_toolchange", "relative_e_axis", "second_flush_volume", "toolchange_count", "toolchange_z",
                                      "travel_point_1_x", "travel_point_1_y", "travel_point_2_x", "travel_point_2_y", "travel_point_3_x",
-                                     "travel_point_3_y", "x_after_toolchange", "y_after_toolchange", "z_after_toolchange"}},
+      "wipe_tower_start_position_x",
+      "wipe_tower_start_position_y",
+      "travel_point_3_y",
+      "wipe_tower_random_num",
+      "wipe_tower_outer_wall_x",
+      "wipe_tower_outer_wall_y",
+      "x_after_toolchange",
+      "y_after_toolchange",
+      "z_after_toolchange"}},
 };
 
 const std::map<t_custom_gcode_key, t_config_option_keys>& custom_gcode_specific_placeholders()
@@ -8148,8 +8239,14 @@ CustomGcodeSpecificConfigDef::CustomGcodeSpecificConfigDef()
     new_def("flush_length_2", coFloat, "Flush Length 2", "The second flush length");
     new_def("flush_length_3", coFloat, "Flush Length 3", "The third flush length");
     new_def("flush_length_4", coFloat, "Flush Length 4", "The fourth flush length");
+    new_def("flush_length_5", coFloat, "Flush Length 5", "The fifth flush length");
     new_def("toolchange_z", coFloat, "Tool Change Z Position", "Tool Change Z Position");
-// change_extrusion_role_gcode
+    new_def("wipe_tower_start_position_x", coFloat, "Wipe tower start position x", "The x pos of wipe start");
+    new_def("wipe_tower_start_position_y", coFloat, "Wipe tower start position_y", "The y pos of wipe start");
+    new_def("wipe_tower_random_num", coFloat, "Wipe tower random num", "Wipe tower random num");
+    new_def("wipe_tower_outer_wall_x", coFloat, "Wipe tower outer wall x", "wipe tower outer wall x");
+    new_def("wipe_tower_outer_wall_y", coFloat, "Wipe tower outer wall y", "wipe tower outer wall y");
+    // change_extrusion_role_gcode
     std::string extrusion_role_types = "Possible Values:\n[\"Perimeter\", \"ExternalPerimeter\", "
                                                      "\"OverhangPerimeter\", \"InternalInfill\", \"SolidInfill\", \"TopSolidInfill\", \"BottomSurface\", \"BridgeInfill\", \"GapFill\", \"Ironing\", "
                                                      "\"Skirt\", \"Brim\", \"SupportMaterial\", \"SupportMaterialInterface\", \"SupportTransition\", \"WipeTower\", \"Mixed\"]";

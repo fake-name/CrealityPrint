@@ -174,7 +174,7 @@ void FilamentButton::SetIcon(wxString dark_icon, wxString light_icon) {
 
 void FilamentButton::SetLabel(wxString lb)
 {
-	m_label = lb; 
+    m_label = lb;
 }
 
 wxString FilamentButton::getLabel() 
@@ -417,7 +417,7 @@ void FilamentButton::doRender(wxDC& dc)
     #ifdef TARGET_OS_MAC
          basic_font.SetPointSize(FromDIP(10));
     #else
-        basic_font.SetPointSize(8);
+        basic_font.SetPointSize(9);
     #endif
         dc.SetFont(basic_font);
 
@@ -477,7 +477,7 @@ void FilamentButton::doRender(wxDC& dc)
 	this->SetBackgroundColour(m_bg_color);
 
 	this->SetSize(wxSize(400 * em, 28 * em));
-    
+
   
 
 	m_sizer_main = new wxBoxSizer(wxHORIZONTAL);
@@ -506,6 +506,9 @@ void FilamentButton::doRender(wxDC& dc)
             this->Hide();
         #endif
 		});
+        m_filamentCombox->Bind(wxEVT_LEFT_DCLICK, [](wxMouseEvent& e) {
+            e.Skip(false); 
+        });
 		// filament combox
         wxSizerItem* item = m_sizer_main->Add(m_filamentCombox, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 1);
 
@@ -524,7 +527,7 @@ void FilamentButton::doRender(wxDC& dc)
             m_img_extruderTemp = new ScalableButton(box, wxID_ANY, is_dark ? "extruderTemp" : "extruderTemp_black", wxEmptyString, wxDefaultSize,
                                                                   wxDefaultPosition, wxBU_EXACTFIT | wxNO_BORDER, false, 12);
             m_img_extruderTemp->SetBackgroundColour(wxColour(255, 255, 255));
-            sz->Add(m_img_extruderTemp, 0, wxLEFT | wxRIGHT, FromDIP(5));
+            sz->Add(m_img_extruderTemp, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(5));
 
             m_lb_extruderTemp = new Label(box, Label::Body_13, wxString::FromUTF8(""));
             //m_lb_extruderTemp->setLeftMargin(FromDIP(1));
@@ -570,7 +573,7 @@ void FilamentButton::doRender(wxDC& dc)
 
             m_img_bedTemp = new ScalableButton(box, wxID_ANY, is_dark ? "bedTemp" :"bedTemp_black", wxEmptyString, wxDefaultSize, wxDefaultPosition, wxBU_EXACTFIT | wxNO_BORDER, false, 12);
             m_img_bedTemp->SetBackgroundColour(wxColour(255, 255, 255));
-            sz->Add(m_img_bedTemp, 0, wxLEFT | wxRIGHT, FromDIP(5));
+            sz->Add(m_img_bedTemp, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(5));
 
             m_lb_bedTemp = new Label(box, Label::Body_13, wxString::FromUTF8(""));
             //m_lb_bedTemp->setLeftMargin(FromDIP(1));

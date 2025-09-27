@@ -257,16 +257,22 @@ void ErrorReportDialog::sendEmail(wxString zipFilePath)
              curl_easy_setopt(curl, CURLOPT_USERNAME, DUMPTOOL_USER);
             curl_easy_setopt(curl, CURLOPT_PASSWORD, DUMPTOOL_PASS);
             
-             BOOST_LOG_TRIVIAL(error) << "DUMPTOOL_HOST: " << DUMPTOOL_HOST << "\nDUMPTOOL_USER: " << DUMPTOOL_USER
-                                     << "\nCURLOPT_PASSWORD: " << CURLOPT_PASSWORD << "\nDUMPTOOL_TO: " << DUMPTOOL_TO;
+            const bool host_empty = (DUMPTOOL_HOST == nullptr || DUMPTOOL_HOST[0] == '\0');
+            const bool user_empty = (DUMPTOOL_USER == nullptr || DUMPTOOL_USER[0] == '\0');
+            const bool pass_empty = (DUMPTOOL_PASS == nullptr || DUMPTOOL_PASS[0] == '\0');
+            const bool to_empty   = (DUMPTOOL_TO   == nullptr || DUMPTOOL_TO[0]   == '\0');
+            BOOST_LOG_TRIVIAL(warning) << "Mail config - host empty: " << host_empty
+                                    << ", user empty: " << user_empty
+                                    << ", pass empty: " << pass_empty
+                                    << ", to empty: " << to_empty;
 
-             // 打印 CURL 错误详情
-             BOOST_LOG_TRIVIAL(error) << "CURL error: " << curl_easy_strerror(res) << " (code: " << res << ")";
+            // 打印 CURL 错误详情（不输出敏感内容）
+            BOOST_LOG_TRIVIAL(error) << "CURL error: " << curl_easy_strerror(res) << " (code: " << res << ")";
 
-             // 如果是连接问题，打印解析的IP
-             char* ip = nullptr;
-             curl_easy_getinfo(curl, CURLINFO_PRIMARY_IP, &ip);
-             BOOST_LOG_TRIVIAL(error) << "Resolved IP: " << (ip ? ip : "NULL");
+            // 仅记录是否解析到 IP，而不输出具体地址
+            char* ip = nullptr;
+            curl_easy_getinfo(curl, CURLINFO_PRIMARY_IP, &ip);
+            BOOST_LOG_TRIVIAL(warning) << "Resolved IP available: " << (ip != nullptr);
             
          
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -277,7 +283,7 @@ void ErrorReportDialog::sendEmail(wxString zipFilePath)
 
             char* effective_url = nullptr;
             curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url); // 获取最终解析的URL
-            BOOST_LOG_TRIVIAL(error) << "URL: " << (effective_url ? effective_url : "NULL");
+            BOOST_LOG_TRIVIAL(warning) << "Effective URL available: " << (effective_url != nullptr);
             if (res != CURLE_OK) {
                 BOOST_LOG_TRIVIAL(error) << "Error sending email: " << curl_easy_strerror(res);
             } else {
@@ -299,59 +305,96 @@ void ErrorReportDialog::sendEmail(wxString zipFilePath)
     }
 
     wxString ErrorReportDialog::zipFiles() {
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
         // 创建一个zip文件
         wxString format1 = "%Y%m%d%H%M%S";
-        wxString zipFilePath = wxString::Format("%s/CrealityPrint_%s_%s.zip",wxFileName::GetTempDir(),CREALITYPRINT_VERSION,wxDateTime::Now().Format(format1));
+        // 使用wxFileName构建跨平台兼容的文件路径
+        wxFileName zipFileName(wxFileName::GetTempDir(), wxString::Format("CrealityPrint_%s_%s", CREALITYPRINT_VERSION, wxDateTime::Now().Format(format1)), "zip");
+        wxString zipFilePath = zipFileName.GetFullPath();
+        BOOST_LOG_TRIVIAL(warning) << "Creating zip file: " << zipFilePath.ToStdString();
+        BOOST_LOG_TRIVIAL(warning) << "Temp directory: " << wxFileName::GetTempDir().ToStdString();
         mz_zip_archive archive;
         mz_zip_zero_struct(&archive);
         mz_bool status = mz_zip_writer_init_file(&archive, zipFilePath.mb_str(), 0);
         if (!status) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to create zip file: " << zipFilePath.ToStdString();
             std::cerr << "Failed to create zip file!" << std::endl;
             return "";
         }
+        BOOST_LOG_TRIVIAL(warning) << "Zip file created successfully";
         // 添加文件到zip文件
         wxFileName fileName(m_dumpFilePath);
         wxString nameWithExt = fileName.GetFullName();
+        BOOST_LOG_TRIVIAL(warning) << "Adding dump file: " << m_dumpFilePath.ToStdString() << " as " << nameWithExt.ToStdString();
         status = mz_zip_writer_add_file(&archive, nameWithExt.mb_str(), m_dumpFilePath.mb_str(), "", 0, MZ_BEST_COMPRESSION);
         if (!status) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to add dump file to zip: " << m_dumpFilePath.ToStdString();
             std::cerr << "Failed to add file to zip!" << std::endl;
             mz_zip_writer_end(&archive);
             return "";
         }
+        BOOST_LOG_TRIVIAL(warning) << "Dump file added successfully";
+        
+        BOOST_LOG_TRIVIAL(warning) << "Adding system info file: " << m_systemInfoFilePath.ToStdString();
          status = mz_zip_writer_add_file(&archive, "system_info.json", m_systemInfoFilePath.mb_str(), "", 0, MZ_BEST_COMPRESSION);
         if (!status) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to add system info file to zip: " << m_systemInfoFilePath.ToStdString();
             std::cerr << "Failed to add file to zip!" << std::endl;
             mz_zip_writer_end(&archive);
             return "";
         }
+        BOOST_LOG_TRIVIAL(warning) << "System info file added successfully";
+        
 		 //添加日志文件
+        BOOST_LOG_TRIVIAL(warning) << "Adding log files to zip";
         if (!addLogFiles(archive)) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to add log files to zip";
             std::cerr << "Failed to add log files to zip!" << std::endl;
             mz_zip_writer_end(&archive);
             return "";
         }
+        BOOST_LOG_TRIVIAL(warning) << "Log files added successfully";
 
+        BOOST_LOG_TRIVIAL(warning) << "Finalizing zip archive";
         status = mz_zip_writer_finalize_archive(&archive);
         if (MZ_FALSE == status) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to finalize zip archive";
             mz_zip_writer_end(&archive);
             return "";
         }
+        BOOST_LOG_TRIVIAL(warning) << "Zip archive finalized successfully";
         // 关闭zip文件
         mz_zip_writer_end(&archive);
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " completed successfully, zip file: " << zipFilePath.ToStdString();
         return zipFilePath;
     }
 
     void ErrorReportDialog::sendReport()
     {
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
+        BOOST_LOG_TRIVIAL(warning) << "Dump file path: " << m_dumpFilePath.ToStdString();
+        
+        BOOST_LOG_TRIVIAL(warning) << "Getting system info";
          m_systemInfoFilePath = getSystemInfo();
+        BOOST_LOG_TRIVIAL(warning) << "System info file path: " << m_systemInfoFilePath.ToStdString();
+        
         if(!m_dumpFilePath.IsEmpty() && !m_systemInfoFilePath.IsEmpty()) {
+            BOOST_LOG_TRIVIAL(warning) << "Creating zip file";
             wxString dumpfile = zipFiles();
             if(dumpfile.IsEmpty()) {
+                BOOST_LOG_TRIVIAL(error) << "Failed to create zip file, aborting send";
                     return ;
             }
+            BOOST_LOG_TRIVIAL(warning) << "Zip file created: " << dumpfile.ToStdString();
+            BOOST_LOG_TRIVIAL(warning) << "Sending email with zip file";
             sendEmail(dumpfile);
+        } else {
+            BOOST_LOG_TRIVIAL(error) << "Missing required files - dump file: " << (m_dumpFilePath.IsEmpty() ? "EMPTY" : "OK") 
+                                    << ", system info file: " << (m_systemInfoFilePath.IsEmpty() ? "EMPTY" : "OK");
         }
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " end";
     }
+
 
 void ErrorReportDialog::GetErrorReport()
     {
@@ -405,10 +448,10 @@ bool ErrorReportDialog::addLogFiles(mz_zip_archive& archive)
 {
     try {
         // 获取日志目录路径
-        std::string           log_dir = Slic3r::data_dir() + "\\log";
+        std::string           log_dir = Slic3r::data_dir() + "/log";
         std::filesystem::path log_path(log_dir);
 
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " start";
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
 
         // 检查目录是否存在
         if (!std::filesystem::exists(log_path)) {
@@ -443,6 +486,7 @@ bool ErrorReportDialog::addLogFiles(mz_zip_archive& archive)
         return false;
     }
 }
+
 
 std::vector<std::filesystem::path> ErrorReportDialog::collectLogFiles(const std::filesystem::path& log_path)
 {

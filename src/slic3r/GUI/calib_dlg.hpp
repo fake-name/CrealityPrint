@@ -194,7 +194,7 @@ protected:
     Plater*      m_plater;
 
 private:
-    float m_CurrentValue = 0.0f;
+    float m_CurrentValue = 0.8f;
 };
 
 class Limit_Speed_Dlg : public DPIDialog

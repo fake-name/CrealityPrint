@@ -889,6 +889,8 @@ private:
     ColorRGBA option_color(EMoveType move_type) const;
 
     void _on_set_fold(bool fold);
+
+	bool show_gcode_surface() const;
 };
 
 } // namespace GUI

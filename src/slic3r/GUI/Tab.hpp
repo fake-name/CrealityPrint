@@ -77,7 +77,9 @@ class Page// : public wxScrolledWindow
 public:
 	//BBS: GUI refactor
     Page(wxWindow* parent, const wxString& title, int iconID, wxPanel* tab_owner);
-	~Page() {}
+	~Page() {
+		m_optgroups.clear();
+	}
 
 	bool				m_is_modified_values{ false };
 	bool				m_is_nonsys_values{ true };
@@ -474,6 +476,9 @@ public:
 	bool 		supports_printer_technology(const PrinterTechnology tech) const override { return tech == ptFFF; }
 	Page*           get_active_page() { return m_active_page; }
 	void        rebind_infill_changed_event();
+
+private:
+    wxSizer* create_limit_mess_enable_widget(const std::string& title, wxWindow* parent);
 
 private:
 	ogStaticText*	m_recommended_thin_wall_thickness_description_line = nullptr;

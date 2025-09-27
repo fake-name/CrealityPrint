@@ -301,6 +301,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/print_manage/PrinterMgr.hpp
     GUI/print_manage/App/PrinterMgrView.cpp
     GUI/print_manage/App/PrinterMgrView.hpp
+    GUI/print_manage/App/mqtt_client.h
+    GUI/print_manage/App/mqtt_client.cpp
     GUI/print_manage/Device/LanPrinterInterface.hpp
     GUI/print_manage/Device/LanPrinterInterface.cpp
     GUI/print_manage/Device/Klipper4408Interface.hpp
@@ -679,6 +681,8 @@ set(SLIC3R_GUI_SOURCES
 	GUI/PrinterPresetConfig.cpp
 	GUI/Check3mfVendor.hpp
 	GUI/Check3mfVendor.cpp
+	GUI/AccelerationAndSpeedLimitDialog.hpp
+	GUI/AccelerationAndSpeedLimitDialog.cpp
     Config/OptionConfig.h
     Config/OptionConfig.cpp
     GUI/AnalyticsDataUploadManager.hpp
@@ -689,6 +693,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/TestHelper.hpp
     GUI/StepMeshDialog.hpp
     GUI/StepMeshDialog.cpp
+    GUI/CrProject.hpp
+    GUI/CrProject.cpp
 )
 
 if (WIN32)
@@ -706,6 +712,8 @@ if (APPLE)
             Utils/RetinaHelperImpl.mm
             Utils/MacDarkMode.mm
             Utils/MacDarkMode.hpp
+            Utils/mouse_scheme.mm
+            Utils/mouse_scheme.hpp
             GUI/RemovableDriveManagerMM.mm
             GUI/RemovableDriveManagerMM.h
             GUI/Mouse3DHandlerMac.mm

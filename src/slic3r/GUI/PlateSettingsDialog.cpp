@@ -658,7 +658,17 @@ PlateNameEditDialog::PlateNameEditDialog(wxWindow *parent, wxWindowID id, const 
 
     auto plate_name_txt = new wxStaticText(this, wxID_ANY, _L("Plate name"));
     plate_name_txt->SetFont(Label::Body_14);
-    m_ti_plate_name = new TextInput(this, wxString::FromDouble(0.0), "", "", wxDefaultPosition, wxSize(FromDIP(240), -1), wxTE_PROCESS_ENTER);
+    m_ti_plate_name = new TextInput(this, wxString::FromDouble(0.0), "", "", wxDefaultPosition, wxSize(FromDIP(280), -1), wxTE_PROCESS_ENTER);
+    //fix:[11781]Limit to 20 characters.
+    m_ti_plate_name->GetTextCtrl()->Bind(wxEVT_TEXT, [this](wxCommandEvent& evt) {
+        wxTextCtrl* ctrl = m_ti_plate_name->GetTextCtrl();
+        wxString value = ctrl->GetValue();
+        if (value.Length() > 20) {
+            ctrl->SetValue(value.Left(20));
+            ctrl->SetInsertionPointEnd();
+        }
+        evt.Skip();
+    });
     m_ti_plate_name->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent &e) {
         if (this->IsModal())
             EndModal(wxID_YES);

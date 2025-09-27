@@ -1733,7 +1733,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         if (const auto& volumes = print_object.model_object()->volumes;
             num_extruders > 1 && std::find_if(volumes.begin(), volumes.end(),
                                               [](const ModelVolume* v) { return !v->mmu_segmentation_facets.empty(); }) != volumes.end()) {
-            std::array<bool, static_cast<size_t>(EnforcerBlockerType::ExtruderMax)> used_facet_states{};
+            std::array<bool, static_cast<size_t>(EnforcerBlockerType::ExtruderMax) + 1> used_facet_states{};
             for (const ModelVolume* volume : volumes) {
                 const std::vector<bool>& volume_used_facet_states = volume->mmu_segmentation_facets.get_data().used_states;
 

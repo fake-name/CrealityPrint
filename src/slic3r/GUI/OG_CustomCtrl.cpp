@@ -72,7 +72,7 @@ OG_CustomCtrl::OG_CustomCtrl(   wxWindow*            parent,
     this->Bind(wxEVT_PAINT,     &OG_CustomCtrl::OnPaint, this);
     this->Bind(wxEVT_MOTION,    &OG_CustomCtrl::OnMotion, this);
     this->Bind(wxEVT_LEFT_DOWN, &OG_CustomCtrl::OnLeftDown, this);
-    // this->Bind(wxEVT_LEAVE_WINDOW, &OG_CustomCtrl::OnLeaveWin, this);
+     this->Bind(wxEVT_LEAVE_WINDOW, &OG_CustomCtrl::OnLeaveWin, this);
 }
 
 void OG_CustomCtrl::init_ctrl_lines()
@@ -115,7 +115,7 @@ void OG_CustomCtrl::init_ctrl_lines()
             } else {
                 height = label_sz.y * (label_sz.GetWidth() > int(opt_group->label_width * m_em_unit) ? 2 : 1) + m_v_gap;
             }
-            ctrl_lines.emplace_back(CtrlLine(height, this, line, false, opt_group->staticbox));
+            ctrl_lines.emplace_back(CtrlLine(height + FromDIP(5), this, line, false, opt_group->staticbox));
         }
         else
             assert(false);
@@ -689,6 +689,7 @@ void OG_CustomCtrl::OnPaint(wxPaintEvent&)
 
 void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
 {
+    
     const wxPoint pos = event.GetLogicalPosition(wxClientDC(this));
     wxString tooltip;
     std::string tooltip_img;
@@ -737,8 +738,8 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
                             if(!value)
                             {
                                 tooltip_img = tooltip_img + "_unchecked";
-                                std::string url_png = Slic3r::var(tooltip_img + "_unchecked.png");
-                                phPng = url_png;
+                                phPng = Slic3r::var(tooltip_img + ".png");
+                                phSvg = Slic3r::var(tooltip_img + ".svg");
                             }
                         } catch(const boost::bad_any_cast &e) {
       
@@ -797,6 +798,8 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
     int posW = mdt->GetSize().GetWidth();
     wxPoint      pos2 = {mdt->GetSize().GetWidth() * (-1), focusedLine->rect_label.y};
     pos2 = ClientToScreen(pos2);
+    wxPoint screenPos = ClientToScreen(wxPoint(focusedLine->rect_label.x, focusedLine->rect_label.y));
+    mdt->setLineRect(wxRect(screenPos.x,screenPos.y,focusedLine->rect_label.width,focusedLine->rect_label.height));
     // Set tooltips with information for each icon
     // BBS: markdown tip
     if (!markdowntip.empty()) {
@@ -807,11 +810,7 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
         bool isShow = false;
         if(type == Preset::TYPE_PRINT || type == Preset::TYPE_PLATE || type == Preset::TYPE_MODEL)
         {
-#ifdef WIN32
             isShow = ProcessTip::ShowTip(markdowntip, (tooltip_title), (tooltip_content), (tooltip_img), (tooltip_url), pos2);
-#else
-            isShow = MarkdownTip::ShowTip(markdowntip, into_u8(tooltip), pos2);
-#endif
         }else{
             isShow = MarkdownTip::ShowTip(markdowntip, into_u8(tooltip), pos2);
         }
@@ -835,11 +834,7 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
         bool isShow = false;
         if(type == Preset::TYPE_PRINT || type == Preset::TYPE_PLATE || type == Preset::TYPE_MODEL)
         {
-    #ifdef WIN32
             isShow = ProcessTip::ShowTip(markdowntip, (tooltip_title), (tooltip_content), (tooltip_img), (tooltip_url), {tooltip.empty() ? 0 : 1, 0});
-    #else
-            isShow = MarkdownTip::ShowTip(markdowntip, into_u8(tooltip), pos2);
-    #endif
         }else{
             isShow = MarkdownTip::ShowTip(markdowntip, "", {tooltip.empty() ? 0 : 1, 0});
         }
@@ -897,8 +892,9 @@ void OG_CustomCtrl::OnLeftDown(wxMouseEvent& event)
             }
         }
     }
-
+#ifndef __linux__
     SetFocusIgnoringChildren();
+#endif
 }
 
 void OG_CustomCtrl::OnLeaveWin(wxMouseEvent& event)
@@ -1152,7 +1148,48 @@ void OG_CustomCtrl::CtrlLine::update_visibility(ConfigOptionMode mode)
     const std::vector<Option>& option_set = og_line.get_options();
 
     const ConfigOptionMode& line_mode = option_set.front().opt.mode;
+    std::string itemKey = option_set[0].opt_id;
     is_visible = og_line.toggle_visible && line_mode <= mode;
+    //Field* field = ctrl->opt_group->get_field(itemKey);
+    //if (field)
+    //    field->toggle(true);
+
+    std::function updateItemStateByKey = [this, &itemKey, &line_mode, &mode](){
+        bool isDevelopItem = Slic3r::GUI::wxGetApp().isDevelopParams(itemKey);
+
+        if (isDevelopItem)
+        {
+            std::string itemType = Slic3r::GUI::wxGetApp().getDevelopParamsType(itemKey);
+            if (itemType == "1")
+            {
+                is_visible = og_line.toggle_visible && line_mode <= mode;
+
+                Field* field = ctrl->opt_group->get_field(itemKey);
+                if (!field)
+                    return;
+                field->toggle(false);
+            }
+            else if ((itemType == "2"))
+            {
+                is_visible = false;
+            }
+        }
+    };
+
+    if (!Slic3r::GUI::wxGetApp().isAlpha())
+    {
+        std::string factoryrMode = Slic3r::GUI::wxGetApp().app_config->get("is_factory_mode");
+        bool isFactoryrMode = factoryrMode == "true";
+        auto vtp = wxGetApp().preset_bundle->get_current_vendor_type();
+        if (!isFactoryrMode && vtp == VendorType::Creality)
+        {
+            updateItemStateByKey();
+        }
+    }
+    else
+    {
+
+    }
 
     if (draw_just_act_buttons)
         return;
@@ -1365,10 +1402,12 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord h_pos, wxCoord v_pos)
 
 wxCoord OG_CustomCtrl::CtrlLine::draw_text(wxDC &dc, wxPoint pos, const wxString &text, const wxColour *color, int width, bool is_url/* = false*/, bool is_main/* = false*/)
 {
+    
     wxString multiline_text;
     auto size = Label::split_lines(dc, width, text, multiline_text);
 
     if (!text.IsEmpty()) {
+        dc.SetFont(Label::Body_14);
         const wxString& out_text = multiline_text.IsEmpty() ? text : multiline_text;
 
         if (ctrl->opt_group->split_multi_line && !is_main) { // BBS
@@ -1383,12 +1422,12 @@ wxCoord OG_CustomCtrl::CtrlLine::draw_text(wxDC &dc, wxPoint pos, const wxString
         wxColour old_clr = dc.GetTextForeground();
         wxFont old_font = dc.GetFont();
         wxColor clr_url = StateColor::darkModeColorFor("#15BF59");
-        if (is_focused && is_url) {
+        if (is_focused /*&& is_url*/) {
         // temporary workaround for the OSX because of strange Bold font behavior on BigSerf
 #ifdef __APPLE__
             dc.SetFont(old_font.Underlined());
 #else
-            dc.SetFont(old_font.Bold().Underlined());
+            //dc.SetFont(old_font.Bold().Underlined());
 #endif            
             color = &clr_url;
         }
@@ -1474,6 +1513,7 @@ wxCoord OG_CustomCtrl::CtrlLine::draw_edit_bmp(wxDC &dc, wxPoint pos, const wxBi
 
 bool OG_CustomCtrl::CtrlLine::launch_browser() const
 {
+    return false;
     if (!is_focused || og_line.label_hyperlink.empty())
         return false;
 

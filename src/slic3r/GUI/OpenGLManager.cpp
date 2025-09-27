@@ -384,8 +384,8 @@ bool OpenGLManager::init_gl(bool popup_error)
             BOOST_LOG_TRIVIAL(warning) << "Found Framebuffer Type unknown!"<< std::endl;
         }
 
-        bool valid_version = s_gl_info.is_version_greater_or_equal_to(2, 0);
-        if (!valid_version) {
+        m_valid_version = s_gl_info.is_version_greater_or_equal_to(2, 0);
+        if (!m_valid_version) {
             BOOST_LOG_TRIVIAL(error) << "Found opengl version <= 2.0"<< std::endl;
             // Complain about the OpenGL version.
             if (popup_error) {
@@ -404,7 +404,7 @@ bool OpenGLManager::init_gl(bool popup_error)
             }
         }
 
-        if (valid_version)
+        if (m_valid_version)
         {
             // load shaders
             auto [result, error] = m_shaders_manager.init();
@@ -437,8 +437,8 @@ bool OpenGLManager::init_gl(bool popup_error)
             s_force_power_of_two_textures = true;
 #endif // _WIN32
     }
-
-    return true;
+    
+    return m_valid_version;
 }
 
 wxGLContext* OpenGLManager::init_glcontext(wxGLCanvas& canvas)

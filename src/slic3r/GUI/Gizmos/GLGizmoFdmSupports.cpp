@@ -130,6 +130,9 @@ void GLGizmoFdmSupports::render_painter_gizmo()
     m_c->instances_hider()->render_cut();
     render_cursor();
 
+    if (auto* plater = wxGetApp().plater())
+        plater->close_support_manual_hint();
+
     glsafe(::glDisable(GL_BLEND));
 }
 

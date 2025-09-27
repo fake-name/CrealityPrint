@@ -1023,6 +1023,9 @@ Jump_Del_Thumb:
   DeleteRegKey SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\@CPACK_PACKAGE_INSTALL_REGISTRY_KEY@"
 
   ;Remove the installation directory if it is empty.
+  ; 清理安装目录下可能存在的 log 文件夹
+  RMDir /r "$INSTDIR\log"
+  
   RMDir "$INSTDIR"
     ; 判断上级目录是否为 Creality
   GetFullPathName $R0 "$INSTDIR\.."

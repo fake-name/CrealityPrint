@@ -308,6 +308,7 @@ void PrintObject::make_perimeters()
     // prerequisites
     //DEFINE_PERFORMANCE_TEST("Generating walls 15%");
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " start memory info " << log_memory_info();
+    system_memory_stats(__FUNCTION__);
 
     this->slice();
 
@@ -414,6 +415,7 @@ void PrintObject::make_perimeters()
     ;
 
     this->set_done(posPerimeters);
+    system_memory_stats(__FUNCTION__);
 }
 
 void PrintObject::prepare_infill()
@@ -564,6 +566,7 @@ void PrintObject::prepare_infill()
 
 void PrintObject::infill()
 {
+    system_memory_stats(__FUNCTION__);
     PrintRegionConfig temp_region_config;
     const PrintObjectRegions::LayerRangeRegions layer_range = m_shared_regions->layer_ranges.front();
     auto                                        it          = layer_range.volume_regions.begin();
@@ -609,6 +612,7 @@ void PrintObject::infill()
         auto                                        it          = layer_range.volume_regions.begin();
         it->region->set_config(temp_region_config);
     }
+    system_memory_stats(__FUNCTION__);
 }
 
 void PrintObject::ironing()
@@ -677,7 +681,7 @@ void PrintObject::detect_overhangs_for_lift()
 
 void PrintObject::generate_support_material()
 {
-
+    system_memory_stats(__FUNCTION__);
     
     if (this->set_started(posSupportMaterial)) {
         this->clear_support_layers();
@@ -727,6 +731,7 @@ void PrintObject::generate_support_material()
         if (layer->empty())
             throw Slic3r::SlicingError("Levitating objects cannot be printed without supports.");
 #endif
+    system_memory_stats(__FUNCTION__);
 }
 
 void PrintObject::estimate_curled_extrusions()
@@ -982,6 +987,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "inner_wall_line_width"
             || opt_key == "infill_wall_overlap"
             || opt_key == "top_bottom_infill_wall_overlap"
+            || opt_key == "external_infill_margin"
             || opt_key == "seam_gap"
             || opt_key == "role_based_wipe_speed"
             || opt_key == "wipe_on_loops"
@@ -1571,11 +1577,18 @@ void PrintObject::process_external_surfaces()
 	if (has_voids && m_layers.size() > 1) {
 	    // All but stInternal fill surfaces will get expanded and possibly trimmed.
 	    std::vector<unsigned char> layer_expansions_and_voids(m_layers.size(), false);
+        float                      external_infill_margin = 0.f;
 	    for (size_t layer_idx = 1; layer_idx < m_layers.size(); ++ layer_idx) {
 	    	const Layer *layer = m_layers[layer_idx];
 	    	bool expansions = false;
 	    	bool voids      = false;
 	    	for (const LayerRegion *layerm : layer->regions()) {
+                const double perimeter_width = layerm->region().config().wall_loops.value == 0 ?
+                                                   0. :
+                                                   (layerm->flow(frExternalPerimeter).width() +
+                                                    layerm->flow(frPerimeter).spacing() * (layerm->region().config().wall_loops.value - 1));
+                if (layerm->region().config().external_infill_margin.get_abs_value(perimeter_width) > 0.f)
+                    external_infill_margin = layerm->region().config().external_infill_margin.get_abs_value(perimeter_width);
 	    		for (const Surface &surface : layerm->fill_surfaces.surfaces) {
 	    			if (surface.surface_type == stInternal)
 	    				voids = true;
@@ -1591,7 +1604,7 @@ void PrintObject::process_external_surfaces()
 		}
 	    BOOST_LOG_TRIVIAL(debug) << "Collecting surfaces covered with extrusions in parallel - start";
 	    surfaces_covered.resize(m_layers.size() - 1, Polygons());
-    	auto unsupported_width = - float(scale_(0.3 * EXTERNAL_INFILL_MARGIN));
+    	auto unsupported_width = - float(scale_(0.3 * external_infill_margin));
 	    tbb::parallel_for(
 	        tbb::blocked_range<size_t>(0, m_layers.size() - 1),
 	        [this, &surfaces_covered, &layer_expansions_and_voids, unsupported_width](const tbb::blocked_range<size_t>& range) {
@@ -3319,7 +3332,7 @@ void PrintObject::discover_horizontal_shells()
                 // not work in some situations, as there won't be any grown region in the perimeter
                 // area (this was seen in a model where the top layer had one extra perimeter, thus
                 // its fill_surfaces were thinner than the lower layer's infill), however it's the best
-                // solution so far. Growing the external slices by EXTERNAL_INFILL_MARGIN will put
+                // solution so far. Growing the external slices by external_infill_margin will put
                 // too much solid infill inside nearly-vertical slopes.
 
                 // Surfaces including the area of perimeters. Everything, that is visible from the top / bottom

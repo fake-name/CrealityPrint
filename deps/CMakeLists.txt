@@ -290,6 +290,7 @@ include(OpenVDB/OpenVDB.cmake)
 
 include(GMP/GMP.cmake)
 include(MPFR/MPFR.cmake)
+include(CR_TPMS/cr_tpms.cmake)
 include(CGAL/CGAL.cmake)
 
 include(NLopt/NLopt.cmake)
@@ -356,7 +357,7 @@ endif ()
 
 
 include(FFmpeg/ffmpeg.cmake)
-
+include(paho-mqtt/paho-mqtt.cmake)
 include(OCCT/OCCT.cmake)
 include(OpenCV/OpenCV.cmake)
 include(aliyun-oss-cpp-sdk/aliyun-oss-cpp-sdk.cmake)
@@ -391,6 +392,8 @@ if(ENABLE_BREAKPAD)
         dep_BREAKPAD
         dep_Assimp
         dep_FFmpeg
+        dep_MQTTC
+        dep_MQTT
         )
 else()
     message(STATUS "Breakpad is disabled...")
@@ -414,6 +417,8 @@ else()
         ${EXPAT_PKG}
         dep_OSS
         dep_Assimp
+        dep_MQTTC
+        dep_MQTT
         )
 endif()
     
@@ -423,8 +428,10 @@ endif()
 if (MSVC)
     # Experimental
     #list(APPEND _dep_list "dep_qhull")
+	list(APPEND _dep_cr_tpms "dep_CR_TPMS")
 else()
     list(APPEND _dep_list "dep_Qhull")
+    list(APPEND _dep_cr_tpms "dep_CR_TPMS")
     # list(APPEND _dep_list "dep_x264")   #mac need build x264
     # Not working, static build has different Eigen
     #list(APPEND _dep_list "dep_libigl")
@@ -433,7 +440,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     include(ZSTD/ZSTD.cmake)
     list(APPEND _dep_list_first "dep_zstd")
 endif()
-add_custom_target(deps ALL DEPENDS ${_dep_list_first} ${_dep_list} )
+add_custom_target(deps ALL DEPENDS ${_dep_list_first} ${_dep_list} ${_dep_cr_tpms}  )
 
 # Note: I'm not using any of the LOG_xxx options in ExternalProject_Add() commands
 # because they seem to generate bogus build files (possibly a bug in ExternalProject).

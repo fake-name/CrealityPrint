@@ -128,6 +128,9 @@ public:
 	const Vec2f	 		 start_pos_rotated() const { return m_start_pos; }
 	const Vec2f  		 pos_rotated() const { return this->rotate(m_current_pos); }
 	float 				 elapsed_time() const { return m_elapsed_time; }
+    float                get_wipe_maxe_y() const { return m_wipe_max_y; }
+    float                get_wipe_maxe_x() const { return m_wipe_max_x; }
+
     float                get_and_reset_used_filament_length() { float temp = m_used_filament_length; m_used_filament_length = 0.f; return temp; }
 
 	// Extrude with an explicitely provided amount of extrusion.
@@ -160,6 +163,14 @@ public:
 				m_extrusions.emplace_back(WipeTower::Extrusion(rotated_current_pos, 0, m_current_tool));
 			m_extrusions.emplace_back(WipeTower::Extrusion(rot, width, m_current_tool));
 		}
+        if (m_wipe_max_y <  rot.y())
+        {
+            m_wipe_max_y = rot.y();
+        }
+        if (m_wipe_max_x < rot.x())
+        {
+            m_wipe_max_x = rot.x();
+        }
 
 		m_gcode += "G1";
         if (std::abs(rot.x() - rotated_current_pos.x()) > (float)EPSILON)
@@ -321,6 +332,14 @@ public:
         return *this;
     }
 
+    // Set extruder temperature, don't wait by default.
+    WipeTowerWriterCreality& custom_set_extruder_temp(int temperature, bool wait = false)
+    {
+        m_gcode += "custom_set_tmp "; 
+        m_gcode += "M" + std::to_string(wait ? 109 : 104) + " S" + std::to_string(temperature) + "\n";
+        return *this;
+    }
+
     // Wait for a period of time (seconds).
 	WipeTowerWriterCreality& wait(float time)
 	{
@@ -409,8 +428,12 @@ public:
     {
         return add_wipe_point(Vec2f(x, y));
     }
+    
+    
 
 private:
+    float         m_wipe_max_y = std::numeric_limits<double>::lowest(); 
+    float         m_wipe_max_x = std::numeric_limits<double>::lowest();
 	Vec2f         m_start_pos;
 	Vec2f         m_current_pos;
     std::vector<Vec2f>  m_wipe_path;
@@ -480,7 +503,7 @@ private:
 
 
 WipeTower::ToolChangeResult WipeTowerCreality::construct_tcr(
-    WipeTowerWriterCreality& writer, bool priming, size_t old_tool, bool is_finish) const
+    WipeTowerWriterCreality& writer, bool priming, size_t old_tool, bool is_finish, float purge_volume) const
 {
     WipeTower::ToolChangeResult result;
     result.priming      = priming;
@@ -499,6 +522,9 @@ WipeTower::ToolChangeResult WipeTowerCreality::construct_tcr(
     result.extrusions   = std::move(writer.extrusions());
     result.wipe_path    = std::move(writer.wipe_path());
     result.is_finish_first = is_finish;
+    result.m_wipe_max_y    = writer.get_wipe_maxe_y(); 
+    result.m_wipe_max_x    = writer.get_wipe_maxe_x();
+    result.purge_volume    = purge_volume;
     return result;
 }
 
@@ -609,11 +635,13 @@ WipeTower::ToolChangeResult WipeTowerCreality::tool_change(size_t tool, bool ext
 
     float wipe_area = 0.f;
 	float wipe_volume = 0.f;
+    float purge_volume = 0.0f;
 	// Finds this toolchange info
 	if (tool != (unsigned int)(-1))
 	{
 		for (const auto &b : m_layer_info->tool_changes)
 			if ( b.new_tool == tool ) {
+                purge_volume = b.purge_volume;
                 wipe_volume = b.wipe_volume;
 				wipe_area = b.required_depth * m_layer_info->extra_spacing;
 				break;
@@ -693,7 +721,7 @@ WipeTower::ToolChangeResult WipeTowerCreality::tool_change(size_t tool, bool ext
         m_used_filament_length[m_current_tool] += writer.get_and_reset_used_filament_length();
 
     //return construct_tcr(writer, old_tool, false);
-    return construct_tcr(writer, false, old_tool, false);
+    return construct_tcr(writer, false, old_tool, false, purge_volume);
 }
 
 
@@ -735,7 +763,7 @@ void WipeTowerCreality::toolchange_Unload(
         if (new_temperature != 0 && (new_temperature != m_old_temperature || is_first_layer()) ) { 	// Set the extruder temperature, but don't wait.
             // If the required temperature is the same as last time, don't emit the M104 again (if user adjusted the value, it would be reset)
             // However, always change temperatures on the first layer (this is to avoid issues with priming lines turned off).
-            writer.set_extruder_temp(new_temperature, false);
+            writer.custom_set_extruder_temp(new_temperature, false);
             m_old_temperature = new_temperature;
         }
     }
@@ -1196,12 +1224,12 @@ WipeTower::ToolChangeResult WipeTowerCreality::finish_layer(bool extrude_perimet
         m_current_height += m_layer_info->height;
     }
 
-    return construct_tcr(writer,false, old_tool, true);
+    return construct_tcr(writer, false, old_tool, true, 0.f);
 }
 
 // Appends a toolchange into m_plan and calculates neccessary depth of the corresponding box
-void WipeTowerCreality::plan_toolchange(float z_par, float layer_height_par, unsigned int old_tool,
-                                unsigned int new_tool, float wipe_volume)
+void WipeTowerCreality::plan_toolchange(
+    float z_par, float layer_height_par, unsigned int old_tool, unsigned int new_tool, float wipe_volume, float purge_volume)
 {
 	assert(m_plan.empty() || m_plan.back().z <= z_par + WT_EPSILON);	// refuses to add a layer below the last one
 
@@ -1228,7 +1256,7 @@ void WipeTowerCreality::plan_toolchange(float z_par, float layer_height_par, uns
     float length_to_extrude = volume_to_length(wipe_volume, m_perimeter_width * m_extra_flow, layer_height_par);
     depth += std::ceil(length_to_extrude / width) * m_perimeter_width * m_extra_flow;
 
-	m_plan.back().tool_changes.push_back(WipeTowerInfo::ToolChange(old_tool, new_tool, depth, 0.0f, 0.0f, wipe_volume));    
+	m_plan.back().tool_changes.push_back(WipeTowerInfo::ToolChange(old_tool, new_tool, depth, 0.0f, 0.0f, wipe_volume, purge_volume));
 }
 
 
@@ -1431,7 +1459,7 @@ WipeTower::ToolChangeResult WipeTowerCreality::only_generate_out_wall()
         if (m_current_tool < m_used_filament_length.size())
             m_used_filament_length[m_current_tool] += writer.get_and_reset_used_filament_length();
 
-    return construct_tcr(writer, false, old_tool, true);
+    return construct_tcr(writer, false, old_tool, true, 0.f);
 }
 
 
@@ -1487,7 +1515,8 @@ void WipeTowerCreality::generate(std::vector<std::vector<WipeTower::ToolChangeRe
             }
             finish_layer_tcr = finish_layer(m_enable_timelapse_print ? false : true, layer.extruder_fill);
         }
-
+        float layer_max_y = std::numeric_limits<double>::lowest();
+        float layer_max_x = std::numeric_limits<double>::lowest();
         for (int i=0; i<int(layer.tool_changes.size()); ++i) {
             //layer_result.emplace_back(tool_change(layer.tool_changes[i].new_tool));
             //if (i == idx) // finish_layer will be called after this toolchange
@@ -1501,6 +1530,8 @@ void WipeTowerCreality::generate(std::vector<std::vector<WipeTower::ToolChangeRe
                 layer_result.emplace_back(tool_change(layer.tool_changes[i].new_tool, m_enable_timelapse_print ? false : true));
                 // finish_layer will be called after this toolchange
                 finish_layer_tcr = finish_layer(false, layer.extruder_fill);
+                layer_max_y      = std::max(layer_max_y, finish_layer_tcr.m_wipe_max_y);
+                layer_max_x      = std::max(layer_max_x, finish_layer_tcr.m_wipe_max_x);
             } else {
                 if (idx == -1 && i == 0) {
                     layer_result.emplace_back(tool_change(layer.tool_changes[i].new_tool, false, true));
@@ -1509,7 +1540,7 @@ void WipeTowerCreality::generate(std::vector<std::vector<WipeTower::ToolChangeRe
                 }
             }
         }
-
+        
         if (layer_result.empty()) {
             // there is nothing to merge finish_layer with
             layer_result.emplace_back(std::move(finish_layer_tcr));
@@ -1521,7 +1552,10 @@ void WipeTowerCreality::generate(std::vector<std::vector<WipeTower::ToolChangeRe
             else
                 layer_result[idx] = merge_tcr(layer_result[idx], finish_layer_tcr);
         }
-
+        for (auto& tcr : layer_result) {
+            tcr.m_wipe_max_y = layer_max_y; 
+            tcr.m_wipe_max_x = layer_max_x;
+        }
 		result.emplace_back(std::move(layer_result));
 	}
 }

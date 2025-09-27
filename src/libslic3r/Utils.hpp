@@ -91,13 +91,27 @@ extern std::string log_memory_info(bool ignore_loglevel = false);
 extern void disable_multi_threading();
 // Returns the size of physical memory (RAM) in bytes.
 extern size_t total_physical_memory();
+extern size_t available_physical_memory();
+
+// System-wide memory statistics (cross-platform API; currently implemented on Windows)
+struct SystemMemoryStats {
+    size_t total_bytes = 0;        // Total physical memory (bytes)
+    size_t available_bytes = 0;    // Available physical memory (bytes)
+    bool   valid = false;          // Whether the values are valid for the current platform
+    // Convenience helpers
+    size_t used_bytes() const { return (total_bytes > available_bytes) ? (total_bytes - available_bytes) : 0; }
+    double used_percent() const { return total_bytes ? (double)used_bytes() * 100.0 / (double)total_bytes : 0.0; }
+};
+
+// Get system-wide memory statistics. On unsupported platforms, valid will be false.
+extern SystemMemoryStats system_memory_stats(std::string);
 
 // TEST LOG
 /*
 * 
 * <modul> is module name
 * <function> is which function
-* <code> can be a step¡¢function code¡¢ret code
+* <code> can be a stepï¿½ï¿½function codeï¿½ï¿½ret code
 * <message> is extra info, json format, can empty string
 * 
 * modul+function+code be used to match test result,

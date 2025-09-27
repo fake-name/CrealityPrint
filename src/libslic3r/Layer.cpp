@@ -168,6 +168,8 @@ void Layer::make_perimeters()
 		            const PrintRegionConfig &other_config = other_layerm->region().config();
 		            if (config.wall_filament             == other_config.wall_filament
 		                && config.wall_loops                  == other_config.wall_loops
+                        && config.wall_sequence == other_config.wall_sequence 
+                        && config.is_infill_first == other_config.is_infill_first
 		                && config.inner_wall_speed             == other_config.inner_wall_speed
 		                && config.outer_wall_speed    == other_config.outer_wall_speed
 		                && config.small_perimeter_speed    == other_config.small_perimeter_speed
@@ -386,6 +388,9 @@ coordf_t Layer::get_sparse_infill_max_void_area()
             case ipLine:
             case ipGyroid:
             case ipTpmsD:
+            case ipGradualTpmsG:
+            case ipGradualTpmsD:
+            case ipGradualTpmsFKS:
             case ipAlignedRectilinear:
             case ipOctagramSpiral:
             case ipHilbertCurve:

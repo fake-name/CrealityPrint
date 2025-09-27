@@ -12,6 +12,7 @@
 #include "slic3r/Utils/ColorSpaceConvert.hpp"
 #include "MainFrame.hpp"
 #include "libslic3r/Config.hpp"
+#include <boost/log/trivial.hpp>
 
 using namespace Slic3r;
 using namespace Slic3r::GUI;
@@ -425,7 +426,42 @@ void WipingPanel::create_panels(wxWindow* parent, const int num) {
         panel->SetSizer(sizer);
 
         wxButton* icon = new wxButton(panel, wxID_ANY, {}, wxDefaultPosition, ICON_SIZE, wxBORDER_NONE | wxBU_AUTODRAW);
-        icon->SetBitmap(*get_extruder_color_icon(m_colours[i].GetAsString(wxC2S_HTML_SYNTAX).ToStdString(), std::to_string(i + 1), FromDIP(16), FromDIP(16)));
+        std::string color_str;
+        if (i < m_colours.size() && m_colours[i].IsOk()) {
+            color_str = m_colours[i].GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
+        } else {
+            const char* palette[] = { "#F0F0F0FF", "#FFCC00FF", "#66CCFFFF", "#CC66FFFF", "#99CC33FF", "#FF9966FF", "#6699FFFF" };
+            auto is_used = [&](const std::string& s) -> bool {
+                for (size_t k = 0; k < m_colours.size(); ++k) {
+                    if (m_colours[k].IsOk() && m_colours[k].GetAsString(wxC2S_HTML_SYNTAX).ToStdString() == s)
+                        return true;
+                }
+                return false;
+            };
+            for (const char* c : palette) {
+                if (!is_used(c)) { color_str = c; break; }
+            }
+            if (color_str.empty()) {
+                int r = (37 * int(i) + 50) % 206 + 50;
+                int g = (71 * int(i) + 80) % 206 + 50;
+                int b = (97 * int(i) + 110) % 206 + 50;
+                for (int t = 0; t < 6; ++t) {
+                    wxColour tmp(r, g, b, 0xFF);
+                    auto s = tmp.GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
+                    if (!is_used(s)) { color_str = s; break; }
+                    r = (r + 33) % 256; g = (g + 55) % 256; b = (b + 77) % 256;
+                }
+                if (color_str.empty()) color_str = "#F0F0F0FF";
+            }
+            BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] Fallback color applied (row icon) i=" << i
+                                       << ", m_colours.size=" << m_colours.size() << ", chosen=" << color_str;
+        }
+        BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] BEFORE SetBitmap (row icon) i=" << i
+                                   << ", m_colours.size=" << m_colours.size()
+                                   << ", color_str=" << color_str;
+        icon->SetBitmap(*get_extruder_color_icon(color_str, std::to_string(i + 1), FromDIP(16), FromDIP(16)));
+        BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] AFTER SetBitmap (row icon) i=" << i
+                                   << ", icon_ptr=" << (void*)icon;
         icon->SetCanFocus(false);
         icon_list2.push_back(icon);
 
@@ -558,9 +594,47 @@ WipingPanel::WipingPanel(wxWindow* parent, const std::vector<float>& matrix, con
     header_line_panel->SetSizer(header_line_sizer);
 
     header_line_sizer->AddSpacer(HEADER_BEG_PADDING);
+    BOOST_LOG_TRIVIAL(warning) <<__FUNCTION__ <<  " m_number_of_extruders=" << m_number_of_extruders << " m_colours.size=" << m_colours.size();
+    boost::log::core::get()->flush();
+
     for (unsigned int i = 0; i < m_number_of_extruders; ++i) {
         wxButton* icon = new wxButton(header_line_panel, wxID_ANY, {}, wxDefaultPosition, ICON_SIZE, wxBORDER_NONE | wxBU_AUTODRAW);
-        icon->SetBitmap(*get_extruder_color_icon(m_colours[i].GetAsString(wxC2S_HTML_SYNTAX).ToStdString(), std::to_string(i + 1), FromDIP(16), FromDIP(16)));
+        std::string color_str;
+        if (i < m_colours.size() && m_colours[i].IsOk()) {
+            color_str = m_colours[i].GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
+        } else {
+            const char* palette[] = { "#F0F0F0FF", "#FFCC00FF", "#66CCFFFF", "#CC66FFFF", "#99CC33FF", "#FF9966FF", "#6699FFFF" };
+            auto is_used = [&](const std::string& s) -> bool {
+                for (size_t k = 0; k < m_colours.size(); ++k) {
+                    if (m_colours[k].IsOk() && m_colours[k].GetAsString(wxC2S_HTML_SYNTAX).ToStdString() == s)
+                        return true;
+                }
+                return false;
+            };
+            for (const char* c : palette) {
+                if (!is_used(c)) { color_str = c; break; }
+            }
+            if (color_str.empty()) {
+                int r = (37 * int(i) + 50) % 206 + 50;
+                int g = (71 * int(i) + 80) % 206 + 50;
+                int b = (97 * int(i) + 110) % 206 + 50;
+                for (int t = 0; t < 6; ++t) {
+                    wxColour tmp(r, g, b, 0xFF);
+                    auto s = tmp.GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
+                    if (!is_used(s)) { color_str = s; break; }
+                    r = (r + 33) % 256; g = (g + 55) % 256; b = (b + 77) % 256;
+                }
+                if (color_str.empty()) color_str = "#F0F0F0FF";
+            }
+            BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] Fallback color applied (header icon) i=" << i
+                                       << ", m_colours.size=" << m_colours.size() << ", chosen=" << color_str;
+        }
+        BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] BEFORE SetBitmap (header icon) i=" << i
+                                   << ", m_colours.size=" << m_colours.size()
+                                   << ", color_str=" << color_str;
+        icon->SetBitmap(*get_extruder_color_icon(color_str, std::to_string(i + 1), FromDIP(16), FromDIP(16)));
+        BOOST_LOG_TRIVIAL(warning) << "[WipingPanel::create_panels] AFTER SetBitmap (header icon) i=" << i
+                                   << ", icon_ptr=" << (void*)icon;
         icon->SetCanFocus(false);
         icon_list1.push_back(icon);
         
@@ -572,6 +646,7 @@ WipingPanel::WipingPanel(wxWindow* parent, const std::vector<float>& matrix, con
     m_sizer_advanced->Add(header_line_panel, 0, wxEXPAND | wxRIGHT | wxLEFT, TABLE_BORDER);
     
     create_panels(m_page_advanced, m_number_of_extruders);
+    boost::log::core::get()->flush();
 
     //m_sizer_advanced->AddSpacer(BTN_SIZE.y);
 
@@ -760,10 +835,13 @@ WipingPanel::WipingPanel(wxWindow* parent, const std::vector<float>& matrix, con
 }
 void WipingPanel::on_set_sys_value()
 {   PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
+    DynamicPrintConfig& preset = preset_bundle.printers.get_selected_preset().config;
+    float default_flush = preset.option<ConfigOptionFloat>("default_flush_multiplier")->value;
     bool is_creality_vendor = preset_bundle.is_cx_vendor();
     if(is_creality_vendor)
     {
-        m_flush_multiplier_ebox->SetValue(wxString::Format(("%.2f"), CREALITY_FLUSH_MULTIPLIER));
+        //m_flush_multiplier_ebox->SetValue(wxString::Format(("%.2f"), CREALITY_FLUSH_MULTIPLIER));
+        m_flush_multiplier_ebox->SetValue(wxString::Format(("%.2f"), default_flush));
     }
     else
     {
@@ -850,8 +928,11 @@ void WipingPanel::update_warning_texts()
     float      user_multiplier = wxAtof(str);
     PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
     bool is_cx_vendor = preset_bundle.is_cx_vendor();
-    float b = is_cx_vendor ? CREALITY_FLUSH_MULTIPLIER : NORMAL_FLUSH_MULTIPLIER;
-    if(std::fabs(user_multiplier - b)<1e-6)
+    DynamicPrintConfig& preset = preset_bundle.printers.get_selected_preset().config;
+    float default_flush = preset.option<ConfigOptionFloat>("default_flush_multiplier")->value;
+    //float b = is_cx_vendor ? CREALITY_FLUSH_MULTIPLIER : NORMAL_FLUSH_MULTIPLIER;
+    float b = is_cx_vendor ? default_flush : NORMAL_FLUSH_MULTIPLIER;
+    if(std::fabs(user_multiplier -  b)<1e-6)
     {
         m_btn_reset->Hide();
     }else{

@@ -603,6 +603,16 @@ void SavePresetDialog::update_physical_printers(const std::string &preset_name)
 
 void SavePresetDialog::accept(wxCommandEvent &event)
 {
+    //wxPanel* atab = wxGetApp().params_dialog()->panel()->get_current_tab();
+    //Tab* tab_print = dynamic_cast<Tab*>(atab);
+    //tab_print->select_item(0);
+    //tab_print->select_item(3);
+    //wxGetApp().params_panel()->set_active_tab(tab_print);
+    ////wxGetApp().params_panel()->OnActivate();
+    //wxGetApp().params_dialog()->panel()->OnActivate();
+    //tab_print->tree_sel_change_delayed(event);
+    //tab_print->rebuild_page_tree();
+
     for (Item *item : m_items) {
         item->accept();
         if (item->type() == Preset::TYPE_PRINTER) update_physical_printers(item->preset_name());

@@ -2822,6 +2822,7 @@ const ImWchar* ImFontAtlas::GetGlyphRangesBasic()
         0,
     };
     return &ranges[0];
+
 }
 
 const ImWchar* ImFontAtlas::GetGlyphRangesEnglish()

@@ -11,10 +11,99 @@
 #include "MainFrame.hpp"
 #include <wx/notebook.h>
 #include "libslic3r/common_header/common_header.h"
+#include <wx/glcanvas.h>
+#include "GLCanvas3D.hpp"
 namespace Slic3r {
 namespace GUI {
 
 wxDEFINE_EVENT(EVT_PREFERENCES_SELECT_TAB, wxCommandEvent);
+
+SelectableCard::SelectableCard(wxWindow* parent, wxString title)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL | wxBORDER_NONE), m_title(std::move(title))
+{
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
+    Bind(wxEVT_PAINT, &SelectableCard::OnPaint, this);
+    Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent&) {}); 
+}
+
+void SelectableCard::OnPaint(wxPaintEvent&)
+{
+    wxAutoBufferedPaintDC dc(this);
+    const wxRect          rc = GetClientRect();
+
+    wxColour bg = GetBackgroundColour();
+    if (!bg.IsOk() && GetParent())
+        bg = GetParent()->GetBackgroundColour();
+    if (!bg.IsOk())
+        bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.SetBrush(wxBrush(bg));
+    dc.DrawRectangle(rc);
+
+    // 颜色 & 尺寸
+    const wxColour colBorderSel(21, 192, 89);  // 选中边
+    const wxColour colBorderNor(150, 150, 152); // 未选边
+    const wxColour colBorderHov(190, 190, 190); // 悬停
+    const wxColour colTitle(145, 149, 153); //标题字体颜色
+    const wxColour colDivider(150, 150, 152);//分割线
+
+    const int border_w = m_selected ? FromDIP(2) : FromDIP(1);
+    const int pad      = FromDIP(8);
+    const int header_h = HeaderHeight();
+
+    // 外框
+    wxRect rOuter = rc;
+    rOuter.Deflate(FromDIP(2));
+    dc.SetBrush(*wxTRANSPARENT_BRUSH);
+    dc.SetPen(wxPen(m_selected ? colBorderSel : (m_hover ? colBorderHov : colBorderNor), border_w));
+    dc.DrawRoundedRectangle(rOuter,0);
+
+    // 内容区域
+    wxRect rInner = rOuter;
+    rInner.Deflate(FromDIP(3));
+
+    // 顶部标题条
+    wxRect rHeader = rInner;
+    rHeader.height = header_h;
+
+    dc.SetPen(*wxTRANSPARENT_PEN);
+    dc.DrawRectangle(rHeader);
+
+    // 标题文字
+    dc.SetTextForeground(colTitle);
+    wxFont f = GetFont();
+    f.SetWeight(wxFONTWEIGHT_SEMIBOLD);
+    dc.SetFont(f);
+    const int tx = rHeader.GetX() + pad;
+    const int ty = rHeader.GetY() + (header_h - dc.GetCharHeight()) / 2;
+    dc.DrawText(m_title, tx, ty);
+
+    dc.SetPen(wxPen(colDivider, FromDIP(1)));
+    const int line_y = rHeader.GetBottom();
+    dc.DrawLine(rHeader.GetLeft(), line_y, rInner.GetRight(), line_y);
+
+    if (m_selected) {
+        const int badge = FromDIP(22);
+        const int bx    = rInner.GetRight() - badge;
+        const int by    = rHeader.GetY();
+
+        dc.SetBrush(wxBrush(colBorderSel));
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.DrawRectangle(wxRect(bx, by, badge, badge));
+
+         wxPen pen(*wxWHITE, FromDIP(2), wxPENSTYLE_SOLID);
+        pen.SetCap(wxCAP_ROUND);
+        pen.SetJoin(wxJOIN_ROUND);
+        dc.SetPen(pen);
+
+        const int ip = FromDIP(5); // 勾的内边距
+        wxPoint   p1(bx + ip, by + badge / 2);
+        wxPoint   p2(bx + badge / 2 - 1, by + badge - ip);
+        wxPoint   p3(bx + badge - ip, by + ip);
+        dc.DrawLine(p1, p2);
+        dc.DrawLine(p2, p3);
+    }
+}
 
 KBShortcutsDialog::KBShortcutsDialog()
     : DPIDialog(static_cast<wxWindow*>(wxGetApp().mainframe), wxID_ANY,_L("Keyboard Shortcuts"),
@@ -86,6 +175,180 @@ KBShortcutsDialog::KBShortcutsDialog()
     event.SetEventObject(this);
     wxPostEvent(this, event);
     wxGetApp().UpdateDlgDarkUI(this);
+}
+
+static wxSizer* make_kv(wxWindow* parent, const wxString& key, const wxString& desc)
+{
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    auto* k   = new wxStaticText(parent, wxID_ANY, key);
+    auto* sep = new wxStaticText(parent, wxID_ANY, ": ");
+    auto* d   = new wxStaticText(parent, wxID_ANY, desc);
+#ifdef __WXMSW__
+    k->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+    sep->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+    d->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+#endif
+    k->SetFont(k->GetFont().Bold());
+    row->Add(k, 0, wxALIGN_CENTER_VERTICAL);
+    row->Add(sep, 0, wxALIGN_CENTER_VERTICAL);
+    row->Add(d, 0, wxALIGN_CENTER_VERTICAL);
+    return row;
+}
+
+void SelectableCard::SetSelected(bool sel)
+{
+    if (m_selected != sel) 
+    {
+        m_selected = sel;
+        Refresh();
+    }
+}
+bool SelectableCard::IsSelected() const 
+{ 
+    return m_selected; 
+}
+
+void KBShortcutsDialog::create_mouse_scheme_cards(wxWindow* parent)
+{
+    auto* h = parent->GetSizer();
+    if (!h) {
+        h = new wxBoxSizer(wxHORIZONTAL);
+        parent->SetSizer(h);
+    }
+
+    auto add_card = [&](SelectableCard*& card, const wxString& title, std::initializer_list<std::pair<wxString, wxString>> rows) {
+        card = new SelectableCard(parent, title);
+        card->SetBackgroundColour(parent->GetBackgroundColour());
+
+        auto* v = new wxBoxSizer(wxVERTICAL);
+        v->AddSpacer(card->HeaderHeight() + FromDIP(12));
+
+        for (const auto& kv : rows)
+            v->Add(make_kv(card, kv.first, kv.second), 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+
+        card->SetSizer(v);
+        card->SetMinSize(wxSize(FromDIP(380), wxDefaultCoord));
+        card->SetCursor(wxCursor(wxCURSOR_HAND));
+        return card;
+    };
+
+    #if __APPLE__
+    add_card(reinterpret_cast<SelectableCard*&>(m_card_scheme_a), _L("Mouse shortcut scheme 1"),
+             {
+                 {_L("Click"), _L("Rotate View")},
+                 {_L("Control+Click"), _L("Pan View")},
+                 {_L("Shift+mouse"), _L("Select objects by rectangle")},
+             });
+
+    add_card(reinterpret_cast<SelectableCard*&>(m_card_scheme_b), _L("Mouse shortcut scheme 2"),
+             {
+                 {_L("Click"), _L("Rotate View")},
+                 {_L("Right mouse button"), _L("Pan View")},
+                 {_L("Shift+mouse"), _L("Select objects by rectangle")},
+             });
+
+    #else
+    add_card(reinterpret_cast<SelectableCard*&>(m_card_scheme_a), _L("Mouse shortcut scheme 1"),
+             {
+                 {_L("Left mouse button"), _L("Select objects by rectangle")},
+                 {_L("Right mouse button"), _L("Rotate View")},
+                 {_L("Shift+Left mouse button"), _L("Pan View")},
+             });
+
+    add_card(reinterpret_cast<SelectableCard*&>(m_card_scheme_b), _L("Mouse shortcut scheme 2"),
+             {
+                 {_L("Left mouse button"), _L("Rotate View")},
+                 {_L("Right mouse button"), _L("Pan View")},
+                 {_L("Shift+Left mouse button"), _L("Select objects by rectangle")},
+             });
+    #endif
+    h->Add(m_card_scheme_a, 1, wxEXPAND | wxALL, FromDIP(6));
+    h->Add(m_card_scheme_b, 1, wxEXPAND | wxALL, FromDIP(6));
+
+    m_card_scheme_a->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { select_scheme(true); });
+    m_card_scheme_b->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { select_scheme(false); });
+
+    static_cast<SelectableCard*>(m_card_scheme_a)->SetSelected(true);
+    static_cast<SelectableCard*>(m_card_scheme_b)->SetSelected(false);
+    m_is_a_selected = true;
+
+    auto make_texts_transparent = [](wxWindow* panel) {
+#ifdef __WXMSW__
+        for (auto* child : panel->GetChildren())
+            if (auto* st = wxDynamicCast(child, wxStaticText)) {
+                st->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+                st->SetBackgroundColour(wxNullColour);
+            }
+#endif
+    };
+    make_texts_transparent(m_card_scheme_a);
+    make_texts_transparent(m_card_scheme_b);
+
+    auto bind_click_recursive = [&](wxWindow* w, bool choose_a, auto&& self) -> void {
+        w->Bind(wxEVT_LEFT_DOWN, [this, choose_a](wxMouseEvent&) { select_scheme(choose_a); });
+
+        for (wxWindow* child : w->GetChildren())
+            self(child, choose_a, self);
+    };
+    bind_click_recursive(m_card_scheme_a, true, bind_click_recursive);
+    bind_click_recursive(m_card_scheme_b, false, bind_click_recursive);
+
+    auto bind_hover_guard = [&](wxWindow* card_w) {
+        auto* card = static_cast<SelectableCard*>(card_w);
+
+        card_w->Bind(wxEVT_ENTER_WINDOW, [card](wxMouseEvent& e) {
+            card->SetHover(true);
+            e.Skip();
+        });
+
+        card_w->Bind(wxEVT_LEAVE_WINDOW, [card](wxMouseEvent& e) {
+            card->CallAfter([card] {
+                const wxPoint mouse_sp = wxGetMousePosition();
+                const wxRect  card_scr = card->GetScreenRect();
+                const bool    inside   = card_scr.Contains(mouse_sp);
+                card->SetHover(inside);
+            });
+            e.Skip();
+        });
+
+        card_w->Bind(wxEVT_MOTION, [card](wxMouseEvent& e) {
+            card->SetHover(true);
+            e.Skip();
+        });
+    };
+
+    bind_hover_guard(m_card_scheme_a);
+    bind_hover_guard(m_card_scheme_b);
+}
+
+
+void KBShortcutsDialog::select_scheme(bool choose_a)
+{
+    m_is_a_selected = choose_a;
+    static_cast<SelectableCard*>(m_card_scheme_a)->SetSelected(choose_a);
+    static_cast<SelectableCard*>(m_card_scheme_b)->SetSelected(!choose_a);
+
+    const int scheme = choose_a ? 0 : 1;
+    wxGetApp().app_config->set("mouse_scheme", choose_a ? "0" : "1");
+    wxGetApp().app_config->save();
+    wxGetApp().send_app_message("CP_MOUSE_SCHEME=" + std::to_string(scheme), /*bforce=*/true);
+    if (auto* plater = wxGetApp().plater()) {
+        auto apply = [&](GLCanvas3D* c) {
+            if (!c)
+                return;
+            c->set_mouse_scheme(scheme);
+            if (auto* win = c->get_wxglcanvas()) {
+                win->Refresh(false);
+#ifdef __WXMSW__
+                win->Update();
+#endif
+            }
+        };
+        apply(plater->get_view3D_canvas3D());
+        apply(plater->get_preview_canvas3D());
+        apply(plater->get_assmeble_canvas3D());
+        apply(plater->get_current_canvas3D(false));
+    }
 }
 
 void KBShortcutsDialog::OnSelectTabel(wxCommandEvent &event)
@@ -217,8 +480,8 @@ void KBShortcutsDialog::fill_shortcuts()
         m_full_shortcuts.push_back({{_L("Global shortcuts"), ""}, global_shortcuts});
 
         Shortcuts plater_shortcuts = {
-            { L("Left mouse button"), L("Rotate View") },
-            { L("Right mouse button"), L("Pan View") },
+            //{ L("Left mouse button"), L("Rotate View") },
+            //{ L("Right mouse button"), L("Pan View") },
             { L("Mouse wheel"), L("Zoom View") },
             { "A", L("Arrange all objects") },
             { L("Shift+A"), L("Arrange objects on selected plates") },
@@ -237,7 +500,7 @@ void KBShortcutsDialog::fill_shortcuts()
                 {L("Ctrl+Left mouse button"), L("Select multiple objects")},
 
             #endif
-            {L("Shift+Left mouse button"), L("Select objects by rectangle")},
+            //{L("Shift+Left mouse button"), L("Select objects by rectangle")},
             {L("Arrow Up"), L("Move selection 10 mm in positive Y direction")},
             {L("Arrow Down"), L("Move selection 10 mm in negative Y direction")},
             {L("Arrow Left"), L("Move selection 10 mm in negative X direction")},
@@ -334,7 +597,39 @@ void KBShortcutsDialog::fill_shortcuts()
 wxPanel* KBShortcutsDialog::create_page(wxWindow* parent, const ShortcutsItem& shortcuts, const wxFont& font, const wxFont& bold_font)
 {
     wxPanel* main_page = new wxPanel(parent);
+    main_page->SetBackgroundColour(this->GetBackgroundColour());  
     wxBoxSizer* main_sizer = new wxBoxSizer(wxVERTICAL);
+
+    wxScrolledWindow* scrollable_panel = new wxScrolledWindow(main_page);
+    wxGetApp().UpdateDarkUI(scrollable_panel);
+    scrollable_panel->SetScrollbars(20, 20, 50, 50);
+    scrollable_panel->SetBackgroundColour(main_page->GetBackgroundColour());
+
+    wxBoxSizer* scrollable_panel_sizer = new wxBoxSizer(wxVERTICAL);
+
+    if (shortcuts.first.first == _L("Plater")) {
+        m_mouse_cards_host = new wxPanel(scrollable_panel);
+        m_mouse_cards_host->SetBackgroundColour(scrollable_panel->GetBackgroundColour());
+        m_mouse_cards_host->SetSizer(new wxBoxSizer(wxHORIZONTAL));
+
+        create_mouse_scheme_cards(m_mouse_cards_host);
+
+        int saved = 0;
+        try {
+            saved = wxAtoi(wxGetApp().app_config->get("mouse_scheme"));
+        } catch (...) {}
+        select_scheme(saved == 0);
+
+        scrollable_panel_sizer->Add(m_mouse_cards_host, 0, wxEXPAND | wxALL, FromDIP(8));
+
+        // 分割线
+#ifdef __WXMSW__
+        auto* line = new wxStaticLine(scrollable_panel);
+        scrollable_panel_sizer->Add(line, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
+#else
+        scrollable_panel_sizer->AddSpacer(FromDIP(6));
+#endif
+    }
 
     if (!shortcuts.first.second.empty()) {
         main_sizer->AddSpacer(FromDIP(10));
@@ -347,12 +642,12 @@ wxPanel* KBShortcutsDialog::create_page(wxWindow* parent, const ShortcutsItem& s
     }
 
     int items_count = (int) shortcuts.second.size();
-    wxScrolledWindow *scrollable_panel = new wxScrolledWindow(main_page);
-    wxGetApp().UpdateDarkUI(scrollable_panel);
-    scrollable_panel->SetScrollbars(20, 20, 50, 50);
-    scrollable_panel->SetInitialSize(wxSize(FromDIP(850), FromDIP(450)));
+    //wxScrolledWindow *scrollable_panel = new wxScrolledWindow(main_page);
+    //wxGetApp().UpdateDarkUI(scrollable_panel);
+    //scrollable_panel->SetScrollbars(20, 20, 50, 50);
+    //scrollable_panel->SetInitialSize(wxSize(FromDIP(850), FromDIP(450)));
 
-    wxBoxSizer *     scrollable_panel_sizer = new wxBoxSizer(wxVERTICAL);
+    //wxBoxSizer *     scrollable_panel_sizer = new wxBoxSizer(wxVERTICAL);
     wxFlexGridSizer *grid_sizer             = new wxFlexGridSizer(items_count, 2, FromDIP(10), FromDIP(20));
 
     for (int i = 0; i < items_count; ++i) {

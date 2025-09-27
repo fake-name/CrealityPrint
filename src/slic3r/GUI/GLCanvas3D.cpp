@@ -1217,6 +1217,7 @@ wxDEFINE_EVENT(EVT_GLCANVAS_RESET_LAYER_HEIGHT_PROFILE, SimpleEvent);
 wxDEFINE_EVENT(EVT_GLCANVAS_ADAPTIVE_LAYER_HEIGHT_PROFILE, Event<float>);
 wxDEFINE_EVENT(EVT_GLCANVAS_SMOOTH_LAYER_HEIGHT_PROFILE, HeightProfileSmoothEvent);
 
+wxDEFINE_EVENT(EVT_MOUSE_SCHEME_CHANGED, wxCommandEvent);
 const double GLCanvas3D::DefaultCameraZoomToBoxMarginFactor   = 1.25;
 const double GLCanvas3D::DefaultCameraZoomToBedMarginFactor   = 2.00;
 const double GLCanvas3D::DefaultCameraZoomToPlateMarginFactor = 1.25;
@@ -1347,6 +1348,8 @@ GLCanvas3D::GLCanvas3D(wxGLCanvas* canvas, Bed3D& bed)
     m_selection.set_volumes(&m_volumes.volumes);
 
     m_render_pipeline_stage_stack.push(ERenderPipelineStage::Normal);
+    
+    m_canvas->Bind(EVT_MOUSE_SCHEME_CHANGED, &GLCanvas3D::OnMouseSchemeChanged, this);
 }
 
 GLCanvas3D::~GLCanvas3D()
@@ -1368,6 +1371,12 @@ void GLCanvas3D::post_event(wxEvent&& event)
 
 bool GLCanvas3D::init()
 {
+    try {
+        m_mouse_scheme = wxAtoi(wxGetApp().app_config->get("mouse_scheme"));
+    } catch (...) {
+        m_mouse_scheme = 0;
+    }
+
     if (m_initialized)
         return true;
 
@@ -2216,8 +2225,12 @@ void GLCanvas3D::render(bool only_init)
     // draw overlays
     _render_overlays();
 
-    if (wxGetApp().plater()->is_render_statistic_dialog_visible()) {
-        ImGui::ShowMetricsWindow();
+    if (wxGetApp().plater()->is_render_statistic_dialog_visible() 
+#if 0	
+	|| wxGetApp().app_config->get_bool("lod_debug")
+#endif
+	) {
+        //ImGui::ShowMetricsWindow();
 
         ImGuiWrapper& imgui = *wxGetApp().imgui();
         imgui.begin(std::string("Render statistics"),
@@ -2487,22 +2500,22 @@ void GLCanvas3D::set_gcode_options_visibility_from_flags(unsigned int flags) { m
 
 void GLCanvas3D::set_volumes_z_range(const std::array<double, 2>& range) { m_volumes.set_range(range[0] - 1e-6, range[1] + 1e-6); }
 
-std::vector<int> GLCanvas3D::load_object(const ModelObject& model_object, int obj_idx, std::vector<int> instance_idxs)
+std::vector<int> GLCanvas3D::load_object(const ModelObject& model_object, int obj_idx, std::vector<int> instance_idxs, bool lod_enabled)
 {
     if (instance_idxs.empty()) {
         for (unsigned int i = 0; i < model_object.instances.size(); ++i) {
             instance_idxs.emplace_back(i);
         }
     }
-    return m_volumes.load_object(&model_object, obj_idx, instance_idxs, m_color_by, m_initialized);
+    return m_volumes.load_object(&model_object, obj_idx, instance_idxs, m_color_by, m_initialized, lod_enabled);
 }
 
-std::vector<int> GLCanvas3D::load_object(const Model& model, int obj_idx)
+std::vector<int> GLCanvas3D::load_object(const Model& model, int obj_idx, bool lod_enabled)
 {
     if (0 <= obj_idx && obj_idx < (int) model.objects.size()) {
         const ModelObject* model_object = model.objects[obj_idx];
         if (model_object != nullptr)
-            return load_object(*model_object, obj_idx, std::vector<int>());
+            return load_object(*model_object, obj_idx, std::vector<int>(), lod_enabled);
     }
 
     return std::vector<int>();
@@ -2807,6 +2820,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
         }
     }
     m_volumes.volumes = std::move(glvolumes_new);
+    bool enable_lod   = GUI::wxGetApp().app_config->get_bool("enable_lod");
     for (unsigned int obj_idx = 0; obj_idx < (unsigned int) m_model->objects.size(); ++obj_idx) {
         const ModelObject& model_object = *m_model->objects[obj_idx];
         for (int volume_idx = 0; volume_idx < (int) model_object.volumes.size(); ++volume_idx) {
@@ -2829,7 +2843,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                     // later in this function.
                     it->volume_idx = m_volumes.volumes.size();
                     m_volumes.load_object_volume(&model_object, obj_idx, volume_idx, instance_idx, m_color_by, m_initialized,
-                                                 m_canvas_type == ECanvasType::CanvasAssembleView);
+                                                 m_canvas_type == ECanvasType::CanvasAssembleView, false, enable_lod);
                     m_volumes.volumes.back()->geometry_id = key.geometry_id;
                     update_object_list                    = true;
                 } else {
@@ -3074,7 +3088,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                 if (volume_idx_wipe_tower_old != -1)
                     map_glvolume_old_to_new[volume_idx_wipe_tower_old] = volume_idx_wipe_tower_new;
             }
-        } else if (filaments_count == 1) {
+        } /*else if (filaments_count == 1) {
             DynamicPrintConfig& proj_cfg = wxGetApp().preset_bundle->project_config;
             ConfigOptionFloat   wt_x_opt(0);
             ConfigOptionFloat   wt_y_opt(0);
@@ -3082,7 +3096,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                 dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_x"))->set_at(&wt_x_opt, plate_id, 0);
                 dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_y"))->set_at(&wt_y_opt, plate_id, 0);
             }
-        }
+        }*/
     }
 
     update_volumes_colors_by_extruder();
@@ -3328,6 +3342,12 @@ void GLCanvas3D::bind_event_handlers()
             render();
             evt.Skip();
         });
+        m_canvas->Bind(EVT_MOUSE_SCHEME_CHANGED, [this](wxCommandEvent& e) {
+            m_mouse_scheme = e.GetInt(); 
+            this->set_as_dirty();
+            this->render();
+        });
+
         m_event_handlers_bound = true;
 
         m_canvas->Bind(wxEVT_GESTURE_PAN, &GLCanvas3D::on_gesture, this);
@@ -3398,6 +3418,16 @@ void GLCanvas3D::on_idle(wxIdleEvent& evt)
     auto gizmo = wxGetApp().plater()->get_view3D_canvas3D()->get_gizmos_manager().get_current();
     if (gizmo != nullptr)
         m_dirty |= gizmo->update_items_state();
+
+// for testing only
+#if 0
+    bool always_render = wxGetApp().app_config->get_bool("render_mode");
+    if (always_render) {
+        request_extra_frame();
+        m_dirty |= always_render;
+	}
+#endif
+
 #if ENABLE_ENHANCED_IMGUI_SLIDER_FLOAT
     // ImGuiWrapper::m_requires_extra_frame may have been set by a render made outside of the OnIdle mechanism
     bool imgui_requires_extra_frame = wxGetApp().imgui()->requires_extra_frame();
@@ -4575,11 +4605,17 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
         return evt.LeftIsDown() && !evt.HasAnyModifiers();
 #endif // __APPLE__
     };
-    auto isRectangleSelectable = [](wxMouseEvent& evt) {
+    auto isRectangleSelectable = [this](wxMouseEvent& evt) {
 #if __APPLE__
         return evt.Dragging() && evt.ShiftDown() && evt.LeftIsDown();
 #else
-        return evt.Dragging() && !evt.ShiftDown() && evt.LeftIsDown();
+        if (m_mouse_scheme == 0) {
+            // 方案1：左拖=框选
+            return evt.Dragging() && !evt.ShiftDown() && evt.LeftIsDown();
+        } else {
+            // 方案2：Shift+左拖=框选
+            return evt.Dragging() && evt.ShiftDown() && evt.LeftIsDown();
+        }
 #endif
     };
 
@@ -5080,9 +5116,17 @@ bool GLCanvas3D::is_camera_rotate(const wxMouseEvent& evt) const
         return evt.Moving() && evt.AltDown() && !evt.ShiftDown();
     } else {
 #if __APPLE__
-        return evt.Dragging() && (evt.RightIsDown() || evt.LeftIsDown()) && !evt.HasAnyModifiers();
+        if (m_mouse_scheme == 0) {
+            return evt.Dragging() && (evt.RightIsDown() || evt.LeftIsDown()) && !evt.HasAnyModifiers();
+        } else {
+            return evt.Dragging() && evt.LeftIsDown();
+        }
 #else
-        return evt.Dragging() && evt.RightIsDown();
+        if (m_mouse_scheme == 0) {
+            return evt.Dragging() && evt.RightIsDown();
+        } else {
+            return evt.Dragging() && evt.LeftIsDown();
+        }
 #endif
     }
 }
@@ -5093,9 +5137,21 @@ bool GLCanvas3D::is_camera_pan(const wxMouseEvent& evt) const
         return evt.Moving() && evt.ShiftDown() && !evt.AltDown();
     } else {
 #if __APPLE__
-        return evt.Dragging() && (evt.MiddleIsDown() || evt.RawControlDown());
+        if (m_mouse_scheme == 0) {
+            // 方案1：- control+单击：移动视角
+            return evt.Dragging() && (evt.MiddleIsDown() || evt.RawControlDown());
+        } else {
+            // 方案2：鼠标右键
+            return evt.Dragging() && (evt.MiddleIsDown() || evt.RightIsDown());
+        }
 #else
-        return evt.Dragging() && (evt.MiddleIsDown() || (evt.ShiftDown() && evt.LeftIsDown()));
+        if (m_mouse_scheme == 0) {
+            // 方案1：shift+鼠标左键：移动视角
+            return evt.Dragging() && (evt.MiddleIsDown() || (evt.ShiftDown() && evt.LeftIsDown()));
+        } else {
+            // 方案2：鼠标右键
+            return evt.Dragging() && (evt.MiddleIsDown() ||evt.RightIsDown());
+        }
 #endif
     }
 }
@@ -7797,7 +7853,7 @@ void GLCanvas3D::render_thumbnail_internal(ThumbnailData&            thumbnail_d
 
             ColorRGBA new_color = adjust_color_for_rendering(curr_color);
             if (ban_light) {
-                new_color[3] = (255 - vol->extruder_id) / 255.0f;
+                new_color[3] = (255 - (vol->extruder_id-1)) / 255.0f;
             }
             vol->model.set_color(new_color);
             shader->set_uniform("volume_world_matrix", vol->world_matrix());
@@ -12758,6 +12814,7 @@ bool GLCanvas3D::_render_global_objects_switch_button()
     if (ImGui::SmallButton(global.c_str())) {
         if (enable_object != false) {
             wxGetApp().params_panel()->switch_to_global();
+            wxGetApp().imgui()->set_requires_extra_frame();
         }
     }
     ImGui::PopStyleColor();
@@ -12772,6 +12829,7 @@ bool GLCanvas3D::_render_global_objects_switch_button()
     if (ImGui::SmallButton(objects.c_str())) {
         if (enable_object != true) {
             wxGetApp().params_panel()->switch_to_object();
+            wxGetApp().imgui()->set_requires_extra_frame();
         }
     }
     ImGui::PopStyleColor();
@@ -12895,4 +12953,21 @@ ModelInstance* get_model_instance(const GLVolume& gl_volume, const ModelObject& 
     return object.instances[instance_idx];
 }
 
+void GLCanvas3D::set_mouse_scheme(int scheme)
+{
+    scheme = (scheme == 0) ? 0 : 1;
+    if (m_mouse_scheme == scheme)
+        return;
+    m_mouse_scheme = scheme;
+    wxGetApp().app_config->set("mouse_scheme", std::to_string(scheme));
+    request_extra_frame(); 
+}
+
+void GLCanvas3D::OnMouseSchemeChanged(wxCommandEvent& e) 
+{ 
+    const int s = e.GetInt();
+    if (s != m_mouse_scheme) {
+        m_mouse_scheme = (s == 1 ? 1 : 0);
+    }
+}
 }} // namespace Slic3r::GUI

@@ -11877,6 +11877,15 @@ msgstr ""
 msgid "(Content of the collected data)"
 msgstr ""
 
+msgid ""
+"Please note that the model show will undergo certain changes at small pixels "
+"case.\n"
+"Enabled LOD requires application restart."
+msgstr ""
+
+msgid "Enable LOD"
+msgstr ""
+
 msgid "Downloads"
 msgstr ""
 
@@ -11910,6 +11919,9 @@ msgstr ""
 msgid "China"
 msgstr ""
 
+msgid "Chinese Mainland"
+msgstr ""
+
 msgid "Europe"
 msgstr ""
 
@@ -11938,6 +11950,14 @@ msgid "User Sync"
 msgstr ""
 
 msgid "User Experience Program"
+msgstr ""
+
+msgid "Improve rendering performance by lod"
+msgstr ""
+
+msgid ""
+"Improved rendering performance under the scene of multiple plates and many "
+"models."
 msgstr ""
 
 msgid "Clear my choice on the unsaved presets."
@@ -15983,8 +16003,31 @@ msgstr ""
 msgid "appears to have bridge overhangs, which may cause print failure.\nPlease reorient the model or enable supports.\n\n "
 msgstr ""
 
+msgid "Weight range"
+msgstr ""
+
+msgid "Print speed"
+msgstr ""
+
+msgid "Anchor solid infill by X mm"
+msgstr ""
+
+msgid ""
+"This parameter grows the top/bottom/solid layers by the specified mm to anchor them into the sparse infill and support the perimeters above. "
+"Put 0 to deactivate it. Can be a % of the width of the perimeters."
+msgstr ""
+
 msgid "Current version: %s"
 msgstr "当前软件版本：%s"
 
 msgid "Check out the release notes to learn more."
 msgstr "前往更新日志了解更多"
+
+msgid "Out of memory. Please save the current project and exit the application."
+msgstr ""
+
+msgid "Out of memory"
+msgstr ""
+
+msgid "An error occurred: Failed to generate plate data."
+msgstr ""

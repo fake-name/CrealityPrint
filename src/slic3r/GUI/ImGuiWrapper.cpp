@@ -526,8 +526,8 @@ void ImGuiWrapper::new_frame()
     }
 
     if (m_font_texture == 0) {
-        //init_font(true);
-        init_font_all(true);
+        init_font(true);
+        //init_font_all(true);
     }
 
     ImGui::NewFrame();

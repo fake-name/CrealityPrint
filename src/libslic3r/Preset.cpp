@@ -337,7 +337,7 @@ void Preset::normalize(DynamicPrintConfig &config)
             auto *opt = config.option(key, false);
             /*assert(opt != nullptr);
             assert(opt->is_vector());*/
-            if (opt != nullptr && opt->is_vector())
+            if (opt != nullptr && opt->is_vector() && defaults.option(key) != nullptr)
                 static_cast<ConfigOptionVectorBase*>(opt)->resize(n, defaults.option(key));
         }
         // The following keys are mandatory for the UI, but they are not part of FullPrintConfig, therefore they are handled separately.
@@ -655,9 +655,30 @@ bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const Pre
 {
     DynamicPrintConfig config;
     config.set_key_value("printer_preset", new ConfigOptionString(active_printer.preset.name));
-    const ConfigOption *opt = active_printer.preset.config.option("nozzle_diameter");
-    if (opt)
-        config.set_key_value("num_extruders", new ConfigOptionInt((int)static_cast<const ConfigOptionFloats*>(opt)->values.size()));
+    
+    try {
+        const ConfigOption *opt = active_printer.preset.config.option("nozzle_diameter");
+        if (opt) {
+            const ConfigOptionFloats* floats = dynamic_cast<const ConfigOptionFloats*>(opt);
+            if (floats && !floats->values.empty()) {
+                config.set_key_value("num_extruders", new ConfigOptionInt((int)floats->values.size()));
+            } else {
+                BOOST_LOG_TRIVIAL(warning) << "Invalid nozzle_diameter option type or empty values";
+                config.set_key_value("num_extruders", new ConfigOptionInt(1)); // 默认单喷头
+            }
+        } else {
+            BOOST_LOG_TRIVIAL(warning) << "Failed to get nozzle_diameter option";
+            config.set_key_value("num_extruders", new ConfigOptionInt(1)); // 默认单喷头
+        }
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Exception in config access: " << e.what();
+        config.set_key_value("num_extruders", new ConfigOptionInt(1)); // 默认单喷头
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "Unknown exception in config access";
+        config.set_key_value("num_extruders", new ConfigOptionInt(1)); // 默认单喷头
+    }
+    boost::log::core::get()->flush();
+
     return is_compatible_with_printer(preset, active_printer, &config);
 }
 
@@ -814,7 +835,18 @@ static std::vector<std::string> s_Preset_print_options {
     "layer_height", "initial_layer_print_height", "wall_loops", "alternate_extra_wall", "slice_closing_radius", "ignore_inner_color","spiral_mode", "spiral_mode_smooth", "spiral_mode_max_xy_smoothing", "slicing_mode",
     "top_shell_layers", "top_shell_thickness", "bottom_shell_layers", "bottom_shell_thickness",
     "extra_perimeters_on_overhangs", "ensure_vertical_shell_thickness", "reduce_crossing_wall", "detect_thin_wall", "detect_overhang_wall", "overhang_reverse", "overhang_reverse_threshold","overhang_reverse_internal_only", "wall_direction","smooth_speed_discontinuity_area","smooth_coefficient",
-    "seam_position", "staggered_inner_seams", "wall_sequence", "is_infill_first", "sparse_infill_density", "ai_infill","sparse_infill_pattern", "top_surface_pattern", "bottom_surface_pattern",
+    "seam_position",
+    "staggered_inner_seams",
+    "wall_sequence",
+    "is_infill_first",
+    "sparse_infill_density",
+    "tpms_start_infill_density",
+    "tpms_end_infill_density",
+    "tpms_gradual_direction",
+    "ai_infill",
+    "sparse_infill_pattern",
+    "top_surface_pattern",
+    "bottom_surface_pattern",
     "infill_direction", "solid_infill_direction", "rotate_solid_infill_direction",  "counterbore_hole_bridging",
     "minimum_sparse_infill_area", "reduce_infill_retraction","internal_solid_infill_pattern","gap_fill_target",
     "ironing_type", "ironing_pattern", "ironing_flow", "ironing_speed", "ironing_spacing", "ironing_angle",
@@ -836,7 +868,7 @@ static std::vector<std::string> s_Preset_print_options {
     "filename_format", "wall_filament", "support_bottom_z_distance","minimum_support_area","support_xy_overrides_z",
     "sparse_infill_filament", "solid_infill_filament", "support_filament", "support_interface_filament","support_interface_not_for_body",
     "ooze_prevention", "standby_temperature_delta", "preheat_time","preheat_steps", "interface_shells", "line_width", "initial_layer_line_width",
-    "inner_wall_line_width", "outer_wall_line_width", "sparse_infill_line_width", "internal_solid_infill_line_width",
+    "inner_wall_line_width", "outer_wall_line_width", "sparse_infill_line_width", "internal_solid_infill_line_width", "external_infill_margin",
     "top_surface_line_width", "support_line_width", "infill_wall_overlap","top_bottom_infill_wall_overlap", "bridge_flow", "internal_bridge_flow",
     "elefant_foot_compensation", "elefant_foot_compensation_layers", "xy_contour_compensation", "xy_hole_compensation", "resolution", "enable_prime_tower",
     "prime_tower_width", "prime_tower_brim_width", "prime_volume", "prime_tower_enhance_type", 
@@ -932,8 +964,10 @@ static std::vector<std::string> s_Preset_printer_options {
     "use_firmware_retraction", "use_relative_e_distances", "printer_notes",
     "cooling_tube_retraction",
     "cooling_tube_length", "high_current_on_filament_swap", "parking_pos_retraction", "extra_loading_move", "purge_in_prime_tower", "enable_filament_ramming",
-    "z_offset",
-    "disable_m73", "preferred_orientation", "emit_machine_limits_to_gcode", "pellet_modded_printer", "support_multi_bed_types","bed_mesh_min","bed_mesh_max","bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "enable_long_retraction_when_cut","long_retractions_when_cut","retraction_distances_when_cut","creality_flush_time"
+    "z_offset", "disable_m73", "preferred_orientation", "emit_machine_limits_to_gcode",
+                             "pellet_modded_printer", "support_multi_bed_types", "bed_mesh_min", "bed_mesh_max", "bed_mesh_probe_distance",
+                             "adaptive_bed_mesh_margin", "enable_long_retraction_when_cut", "long_retractions_when_cut",
+                             "retraction_distances_when_cut", "creality_flush_time", "default_flush_multiplier", "multicolor_method"
     };
 
 static std::vector<std::string> s_Preset_sla_print_options {

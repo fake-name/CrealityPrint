@@ -18,6 +18,7 @@ public:
               long           style = wxBORDER_NONE);
 
 public:   
+    bool Enable(bool enable = true);
     void paintEvent(wxPaintEvent& evt);
     void Rescale();
     void OnSize(wxSizeEvent& event);

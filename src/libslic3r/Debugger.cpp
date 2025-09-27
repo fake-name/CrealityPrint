@@ -115,397 +115,507 @@ namespace Slic3r {
 #endif
 	}
 
-	/*******************using immediate window for debug****************************/
-
     ////////////////////using immediate window for debug////////////////////////////
-    void to_svg(const char* path, const Polygons& polys0, const Polygons& polys1, const Polygons& polys2)
+    void to_svg(const char* path, const ExPolygons& expolygons, bool fill/* = true*/)
+    {
+        if (fill)
+        {
+            SVG::ExPolygonAttributes attri("red", "", "", 0);
+            std::vector<std::pair<Slic3r::ExPolygons, SVG::ExPolygonAttributes>> expolygons_with_attributes;
+            expolygons_with_attributes.push_back({ expolygons, attri });
+            SVG::export_expolygons(path, expolygons_with_attributes);
+        }
+        else
+        {
+            //Polygons polygons = to_polygons(expolygons);
+            BoundingBox bb = get_extents(expolygons);
+            SVG svg(path, bb);
+            svg.draw_outline(expolygons, "red", "red", 10000);
+            svg.Close();
+        }
+    }
+
+    void to_svg(const char* path, const ExPolygon& expolygon, bool fill/* = true*/)
+    {
+        ExPolygons temp;
+        temp.push_back(expolygon);
+        to_svg(path, temp, fill);
+    }
+
+    void to_svg(const char* path, const ExPolygons& expolys0, const ExPolygons& expolys1, bool fill/* = true*/)
+    {
+        if (fill)
+        {
+            SVG::ExPolygonAttributes attri_0("red", "", "", 0);
+            SVG::ExPolygonAttributes attri_1("green", "", "", 0);
+
+            std::vector<std::pair<Slic3r::ExPolygons, SVG::ExPolygonAttributes>> expolygons_with_attributes;
+            expolygons_with_attributes.push_back({ expolys0, attri_0 });
+            expolygons_with_attributes.push_back({ expolys1, attri_1 });
+            SVG::export_expolygons(path, expolygons_with_attributes);
+        }
+        else
+        {
+            BoundingBox bb = get_extents(expolys0);
+            bb.merge(get_extents(expolys1));
+
+            SVG svg(path, bb);
+            svg.draw_outline(expolys0, "red", "red", 10000);
+            svg.draw_outline(expolys1, "green", "green", 10000);
+            svg.Close();
+        }
+    }
+
+    void to_svg(const char* path, const ExPolygon& expoly0, const ExPolygon& expoly1, bool fill/* = true*/)
+    {
+        ExPolygons tmp0;
+        ExPolygons tmp1;
+        tmp0.push_back(expoly0);
+        tmp1.push_back(expoly1);
+        to_svg(path, tmp0, tmp1, fill);
+    }
+
+    void to_svg(const char* path, const ExPolygons& expolys0, const ExPolygon& expoly, bool fill/* = true*/)
+    {
+        ExPolygons tmp1;
+        tmp1.push_back(expoly);
+        to_svg(path, expolys0, tmp1, fill);
+    }
+
+    void to_svg(const char* path, const ExPolygon& expoly, const ExPolygons& expolys1, bool fill/* = true*/)
+    {
+        ExPolygons tmp0;
+        tmp0.push_back(expoly);
+        to_svg(path, tmp0, expolys1, fill);
+    }
+
+    void to_svg(const char* dir, const std::vector<ExPolygons>& expolyss, bool fill/* = true*/)
+    {
+        std::string file = std::string(dir) + "\\test";
+
+        for (int i = 0; i < expolyss.size(); i++)
+        {
+            if (expolyss[i].empty())
+            {
+                continue;
+            }
+
+            std::string tem_file = file + std::to_string(i) + ".svg";
+
+            to_svg(tem_file.c_str(), expolyss[i], fill);
+        }
+    }
+    //------------------------------------------------------------------------------
+
+    void to_svg(const char* path, const Polygon& polygon, bool fill/* = true*/)
+    {
+        SVG svg(path, get_extents(polygon));
+        if (fill)
+        {
+            svg.draw(polygon, "red");
+        }
+        else
+        {
+            svg.draw_outline(polygon, "red", 10000);
+        }
+
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygon& poly0, const Polygon& poly1, bool fill/* = true*/)
+    {
+        std::string color_0 = "blue";
+        std::string color_1 = "green";
+
+        BoundingBox bb = get_extents(poly0);
+        bb.merge(get_extents(poly1));
+
+        SVG svg(path, bb);
+        if (fill)
+        {
+            svg.draw(poly0, color_0);
+            svg.draw(poly1, color_1);
+        }
+        else
+        {
+            svg.draw_outline(poly0, color_0, 10000);
+            svg.draw_outline(poly1, color_1, 10000);
+        }
+
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygon& poly, const Polylines& polylines, bool fill/* = true*/)
+    {
+        SVG svg(path, get_extents(poly));
+
+        if (fill)
+        {
+            svg.draw(poly, "red");
+        }
+        else
+        {
+            svg.draw_outline(poly, "red", 10000);
+        }
+
+        svg.draw(polylines, "green", 10000);
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygon& poly, const BoundingBox& bbox, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(poly);
+        bb.merge(bbox);
+
+        SVG svg(path, bb);
+        if (fill)
+        {
+            svg.draw(poly, "red");
+            svg.draw(bbox.polygon(), "red");
+        }
+        else
+        {
+            svg.draw_outline(poly, "red", 10000);
+            svg.draw_outline(bbox.polygon(), "green", 1000);
+        }
+
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polygons, bool fill/* = true*/)
+    {
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polygons);
+            to_svg(path, temp1, fill);
+        }
+        else
+        {
+            SVG svg(path, get_extents(polygons));
+            svg.draw_outline(polygons, "red", 10000);
+            svg.Close();
+
+        }
+    }
+
+    void to_svg(const char* path, const Polygons& polys0, const Polygons& polys1, bool fill/* = true*/)
+    {
+        if (fill)
+        {
+            ExPolygons temp0 = union_ex(polys0);
+            ExPolygons temp1 = union_ex(polys1);
+            to_svg(path, temp0, temp1, fill);
+        }
+        else
+        {
+            std::string stroke_str0 = "red";
+            std::string stroke_str1 = "green";
+
+            BoundingBox bb = get_extents(polys0);
+            bb.merge(get_extents(polys1));
+
+            SVG svg(path, bb);
+            svg.draw_outline(polys0, stroke_str0, 10000);
+            svg.draw_outline(polys1, stroke_str1, 10000);
+            svg.Close();
+        }
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const Polylines& polylines, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(polys);
+        bb.merge(get_extents(polylines));
+        SVG svg(path, bb);
+
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polys);
+            svg.draw(temp1, "red", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys, "red", 10000);
+        }
+
+        //svg.draw(polylines, "green", 10000);
+        for (auto& line : polylines)
+        {
+            svg.draw(line.points, "green", 50000);
+        }
+
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const BoundingBox& bbox, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(polys);
+        bb.merge(bbox);
+        SVG svg(path, bb);
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polys);
+            svg.draw(temp1, "red", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys, "red", 10000);
+        }
+
+        svg.draw_outline(bbox.polygon(), "green", 10000);
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const ExPolygon& expoly, bool fill/* = true*/)
+    {
+        to_svg(path, union_ex(polys), expoly, fill);
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const ExPolygons& expoly, bool fill/* = true*/)
+    {
+        to_svg(path, union_ex(polys), expoly, fill);
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const Point& pt, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(polys);
+        bb.merge(pt);
+        SVG svg(path, bb);
+
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polys);
+            svg.draw(temp1, "red", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys, "red", 10000);
+        }
+
+        svg.draw(pt, "green", 100000);
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const Point& pt0, const Point& pt1, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(polys);
+        bb.merge(pt0);
+        bb.merge(pt1);
+        SVG svg(path, bb);
+
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polys);
+            svg.draw(temp1, "red", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys, "red", 10000);
+        }
+
+        svg.draw(pt0, "red", 100000);
+        svg.draw(pt1, "green", 100000);
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polys, const Point& pt0, const Point& pt1, const Point& pt2, bool fill/* = true*/)
+    {
+        BoundingBox bb = get_extents(polys);
+        bb.merge(pt0);
+        bb.merge(pt1);
+        bb.merge(pt2);
+        SVG svg(path, bb);
+
+        if (fill)
+        {
+            ExPolygons temp1 = union_ex(polys);
+            svg.draw(temp1, "red", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys, "red", 10000);
+        }
+
+        svg.draw(pt0, "red", 100000);
+        svg.draw(pt1, "green", 100000);
+        svg.draw(pt2, "blue", 100000);
+        svg.Close();
+    }
+
+    void to_svg(const char* path, const Polygons& polys0, const Polygons& polys1, const Polygons& polys2, bool fill/* = true*/)
     {
         BoundingBox bb = get_extents(polys0);
         bb.merge(get_extents(polys1));
         bb.merge(get_extents(polys2));
-
         SVG svg(path, bb);
-        svg.draw_outline(polys0, "red", 10000);
-        svg.draw_outline(polys1, "green", 10000);
-        svg.draw_outline(polys2, "blue", 10000);
+
+        if (fill)
+        {
+            ExPolygons temp0 = union_ex(polys0);
+            ExPolygons temp1 = union_ex(polys1);
+            ExPolygons temp2 = union_ex(polys2);
+
+            svg.draw(temp0, "red", 0.5);
+            svg.draw(temp1, "green", 0.5);
+            svg.draw(temp2, "blue", 0.5);
+        }
+        else
+        {
+            svg.draw_outline(polys0, "red", 10000);
+            svg.draw_outline(polys1, "green", 10000);
+            svg.draw_outline(polys2, "blue", 10000);
+        }
+
         svg.Close();
     }
 
-    void to_svg(const char* path, const ExPolygon& expoly0, const ExPolygon& expoly1)
+    void to_svg(const char* dir, const std::vector<Polygons>& polyss, bool fill/* = true*/)
     {
-        Polygons polygons_0 = to_polygons(expoly0);
-        Polygons polygons_1 = to_polygons(expoly1);
+        std::string file = std::string(dir) + "\\test";
 
-        to_svg(path, polygons_0, polygons_1);
+        for (int i = 0; i < polyss.size(); i++)
+        {
+            if (polyss[i].empty())
+            {
+                continue;
+            }
+
+            std::string tem_file = file + std::to_string(i) + ".svg";
+
+            to_svg(tem_file.c_str(), polyss[i], fill);
+        }
+    }
+    //-------------------------------------------------------------------------------
+
+    void to_svg(const char* path, const Polyline& polyline)
+    {
+        SVG svg(path, get_extents(polyline));
+        svg.draw(polyline, "red", 10000);
+        svg.Close();
     }
 
-    void to_svg(const char* path, const ExPolygon& expolygon)
+    void to_svg(const char* path, const Polyline& polyline0, const Polyline& polyline1)
     {
-        Polygons polygons = to_polygons(expolygon);
-        to_svg(path, polygons);
+        BoundingBox bb = get_extents(polyline0);
+        bb.merge(get_extents(polyline1));
+
+        SVG svg(path, bb);
+        svg.draw(polyline0, "red", 10000);
+        svg.draw(polyline1, "green", 10000);
+        svg.Close();
     }
 
-    void to_svg(const char* path, const ExPolygon& expoly, const ExPolygons& expolys1)
+    void to_svg(const char* path, const Polylines& polylines)
     {
-        Polygons polygons_0 = to_polygons(expoly);
-        Polygons polygons_1 = to_polygons(expolys1);
-
-        to_svg(path, polygons_0, polygons_1);
+        SVG svg(path, get_extents(polylines));
+        svg.draw(polylines, "red", 10000);
+        svg.Close();
     }
 
-    void to_svg(const char* path, const ExPolygons& expolys0, const ExPolygons& expolys1)
+    void to_svg(const char* dir, const std::vector<Polylines>& polyliness)
     {
-        Polygons polygons_0 = to_polygons(expolys0);
-        Polygons polygons_1 = to_polygons(expolys1);
+        std::string file = std::string(dir) + "\\test";
 
-        to_svg(path, polygons_0, polygons_1);
+        for (int i = 0; i < polyliness.size(); i++)
+        {
+            if (polyliness[i].empty())
+            {
+                continue;
+            }
+
+            std::string tem_file = file + std::to_string(i) + ".svg";
+
+            to_svg(tem_file.c_str(), polyliness[i]);
+        }
+    }
+    //-------------------------------------------------------------------------------
+
+    void to_svg(const char* path, const SurfaceCollection& surfacs)
+    {
+        const_cast<SurfaceCollection&>(surfacs).export_to_svg(path, true);
+    }
+    //-------------------------------------------------------------------------------
+
+    void to_obj(const char* path, const indexed_triangle_set& its)
+    {
+        its_write_obj(its, path);
     }
 
-    void to_svg(const char* path, const ExPolygons& expolys0, const ExPolygon& expoly)
+    void to_obj(const char* path, const std::vector<indexed_triangle_set>& itss)
     {
-        Polygons polygons_0 = to_polygons(expolys0);
-        Polygons polygons_1 = to_polygons(expoly);
+        if (itss.empty())
+        {
+            return;
+        }
 
-        to_svg(path, polygons_0, polygons_1);
+        indexed_triangle_set its = itss[0];
+
+        for (int i = 1; i < itss.size(); i++)
+        {
+            its_merge(its, itss[i]);
+        }
+
+        to_obj(path, its);
     }
 
-    void to_svg(const char* path, const ExPolygons& expolygons)
+    //one file for std::vector<indexed_triangle_set>
+    void to_obj(const char* dir, const std::vector<std::vector<indexed_triangle_set>>& itsss, bool sperate_file/* = false*/)
     {
-        Polygons polygons = to_polygons(expolygons);
-        to_svg(path, polygons);
+        if (itsss.empty())
+        {
+            return;
+        }
+
+        //put into one file
+        if (sperate_file == false)
+        {
+            std::string file = std::string(dir) + "\\test0.obj";
+
+            indexed_triangle_set its_temp;
+            for (int i = 0; i < itsss.size(); i++)
+            {
+                for (int j = 0; j < itsss[i].size(); j++)
+                {
+                    its_merge(its_temp, itsss[i][j]);
+                }
+            }
+
+            if (!its_temp.empty())
+            {
+                to_obj(file.c_str(), its_temp);
+            }
+        }
+        else
+        {
+            std::string file = std::string(dir) + "\\test";
+
+            for (int i = 0; i < itsss.size(); i++)
+            {
+                if (itsss[i].empty())
+                {
+                    continue;
+                }
+
+                std::string tem_file = file + std::to_string(i) + ".obj";
+
+                to_obj(tem_file.c_str(), itsss[i]);
+            }
+        }
     }
 
-	void to_svg(const char* dir, const std::vector<ExPolygons>& expolyss)
-	{
-		std::string file = std::string(dir) + "\\test";
+    void to_obj(const char* path, const TriangleMesh& tm)
+    {
 
-		for (int i = 0; i < expolyss.size(); i++)
-		{
-			if (expolyss[i].empty())
-			{
-				continue;
-			}
+    }
 
-			std::string tem_file = file + std::to_string(i) + ".svg";
+    void to_obj(const char* path, const std::vector<TriangleMesh>& tms)
+    {
 
-			to_svg(tem_file.c_str(), expolyss[i]);
-		}
-	}
+    }
 
-	//------------------------------------------------------------------------------
-	void to_svg(const char* path, const Polygon& poly0, const Polygon& poly1)
-	{
-		std::string stroke_str0 = "blue";
-		std::string stroke_str1 = "green";
+    void to_obj(const char* dir, const std::vector<std::vector<TriangleMesh>>& tmss)
+    {
 
-		BoundingBox bb = get_extents(poly0);
-		bb.merge(get_extents(poly1));
+    }
 
-		SVG svg(path, bb);
-		svg.draw_outline(poly0, stroke_str0, 10000);
-		svg.draw_outline(poly1, stroke_str1, 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygon& poly, const Polylines& polylines)
-	{
-
-	}
-
-	void to_svg(const char* path, const Polygon& poly, const BoundingBox& bbox)
-	{
-		BoundingBox bb = get_extents(poly);
-		bb.merge(bbox);
-
-		SVG svg(path, bb);
-		svg.draw_outline(poly, "red", 10000);
-		svg.draw_outline(bbox.polygon(), "green", 1000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygon& polygon)
-	{
-		SVG svg(path, get_extents(polygon));
-		svg.draw_outline(polygon, "red", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygons& polygons)
-	{
-		SVG svg(path, get_extents(polygons));
-		svg.draw_outline(polygons, "red", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* dir, const std::vector<Polygons>& polyss)
-	{
-		std::string file = std::string(dir) + "\\test";
-
-		for (int i = 0; i < polyss.size(); i++)
-		{
-			if (polyss[i].empty())
-			{
-				continue;
-			}
-
-			std::string tem_file = file + std::to_string(i) + ".svg";
-
-			to_svg(tem_file.c_str(), polyss[i]);
-		}
-	}
-
-	void to_svg(const char* path, const Polygons& polys0, const Polygons& polys1)
-	{
-		std::string stroke_str0 = "red";
-		std::string stroke_str1 = "green";
-
-		BoundingBox bb = get_extents(polys0);
-		bb.merge(get_extents(polys1));
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys0, stroke_str0, 10000);
-		svg.draw_outline(polys1, stroke_str1, 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygons& polys, const Polylines& polylines)
-	{
-		std::string stroke_str0 = "red";
-		std::string stroke_str1 = "green";
-
-		BoundingBox bb = get_extents(polylines);
-		bb.merge(get_extents(polys));
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys, stroke_str0, 10000);
-		for (auto& line : polylines)
-		{
-			for (auto& point : line)
-			{
-				svg.draw(point, stroke_str1, 10000);
-			}
-		}
-
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygons& polys, const BoundingBox& bbox)
-	{
-		BoundingBox bb = get_extents(polys);
-
-		bb.merge(bbox);
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys, "red", 10000);
-		svg.draw_outline(bbox.polygon(), "green", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygons& polys, const Point& pt)
-	{
-		BoundingBox bb = get_extents(polys);
-
-		bb.merge(pt);
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys, "black", 10000);
-		svg.draw(pt, "red", 10000);
-		svg.Close();
-	}
-	void to_svg(const char* path, const Polygons& polys, const Point& pt0, const Point& pt1)
-	{
-		BoundingBox bb = get_extents(polys);
-
-		bb.merge(pt0);
-		bb.merge(pt1);
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys, "black", 10000);
-		svg.draw(pt0, "red", 10000);
-		svg.draw(pt1, "green", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polygons& polys, const Point& pt0, const Point& pt1, const Point& pt2)
-	{
-		BoundingBox bb = get_extents(polys);
-
-		bb.merge(pt0);
-		bb.merge(pt1);
-		bb.merge(pt2);
-
-		SVG svg(path, bb);
-		svg.draw_outline(polys, "black", 10000);
-		svg.draw(pt0, "red", 10000);
-		svg.draw(pt1, "green", 10000);
-		svg.draw(pt2, "blue", 10000);
-		svg.Close();
-	}
-
-	//-------------------------------------------------------------------------------
-	void to_svg(const char* path, const Polyline& polyline)
-	{
-		SVG svg(path, get_extents(polyline));
-		svg.draw(polyline, "red", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polyline& polyline0, const Polyline& polyline1)
-	{
-		BoundingBox bb = get_extents(polyline0);
-		bb.merge(get_extents(polyline1));
-
-		SVG svg(path, bb);
-		svg.draw(polyline0, "red", 10000);
-		svg.draw(polyline1, "green", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* path, const Polylines& polylines)
-	{
-		SVG svg(path, get_extents(polylines));
-		svg.draw(polylines, "red", 10000);
-		svg.Close();
-	}
-
-	void to_svg(const char* dir, const std::vector<Polylines>& polyliness)
-	{
-		std::string file = std::string(dir) + "\\test";
-
-		for (int i = 0; i < polyliness.size(); i++)
-		{
-			if (polyliness[i].empty())
-			{
-				continue;
-			}
-
-			std::string tem_file = file + std::to_string(i) + ".svg";
-
-			to_svg(tem_file.c_str(), polyliness[i]);
-		}
-	}
-
-	//-------------------------------------------------------------------------------
-	void to_svg(const char* dir, const ClipperLib_Z::Paths& paths0, const ClipperLib_Z::Paths& paths1)
-	{
-        VecOfPoints vec_of_points_0 = ClipperZUtils::from_zpaths(paths0);
-        Polygons polygons_0 = to_polygons(vec_of_points_0);
-
-        VecOfPoints vec_of_points_1 = ClipperZUtils::from_zpaths(paths1);
-        Polygons polygons_1 = to_polygons(vec_of_points_1);
-
-        to_svg(dir, polygons_0, polygons_1);
-	}
-
-	//-------------------------------------------------------------------------------
-	void to_svg(const char* file, const ClipperLib::Paths& paths)
-	{
-		 Polygons polygons = to_polygons(paths);
-		 to_svg(file, polygons);
-	}
-
-	////////////////////output 3D shapes to obj ////////////////////////////
-	void to_obj(const char* path, const indexed_triangle_set& its)
-	{
-		its_write_obj(its, path);
-	}
-
-	void to_obj(const char* path, const std::vector<indexed_triangle_set>& itss)
-	{
-		if (itss.empty())
-		{
-			return;
-		}
-
-		indexed_triangle_set its = itss[0];
-
-		for (int i = 1; i < itss.size(); i++)
-		{
-			its_merge(its, itss[i]);
-		}
-
-		to_obj(path, its);
-	}
-
-	//one file for std::vector<indexed_triangle_set>
-	void to_obj(const char* dir, const std::vector<std::vector<indexed_triangle_set>>& itsss, bool sperate_file/* = false*/)
-	{
-		if (itsss.empty())
-		{
-			return;
-		}
-
-		//put into one file
-		if (sperate_file == false)
-		{
-			std::string file = std::string(dir) + "\\test0.obj";
-
-			indexed_triangle_set its_temp;
-			for (int i = 0; i < itsss.size(); i++)
-			{
-				for (int j = 0; j < itsss[i].size(); j++)
-				{
-					its_merge(its_temp, itsss[i][j]);
-				}
-			}
-
-			if (!its_temp.empty())
-			{
-				to_obj(file.c_str(), its_temp);
-			}
-		}
-		else
-		{
-			std::string file = std::string(dir) + "\\test";
-
-			for (int i = 0; i < itsss.size(); i++)
-			{
-				if (itsss[i].empty())
-				{
-					continue;
-				}
-
-				std::string tem_file = file + std::to_string(i) + ".obj";
-
-				to_obj(tem_file.c_str(), itsss[i]);
-			}
-		}
-	}
-
-	void to_obj(const char* path, const TriangleMesh& tm)
-	{
-
-	}
-
-	void to_obj(const char* path, const std::vector<TriangleMesh>& tms)
-	{
-
-	}
-
-	void to_obj(const char* dir, const std::vector<std::vector<TriangleMesh>>& tmss)
-	{
-
-	}
-
-	////////////////////print slice data to file////////////////////////////
-	void export_fill_surfaces(PrintObject* po, const char* func_name, int counter)
-	{
-		std::string fine_name = "D:\\svg_debug_files\\" + std::to_string(counter) + std::string(func_name) + "_cp.txt";
-		std::ofstream fs(fine_name);
-
-		for (int layer_idx = 0; layer_idx < po->layer_count(); layer_idx++)
-		{
-			Layer* layer = po->get_layer(layer_idx);
-			fs << layer_idx << "\t" << "\t";
-
-			for (int region_idx = 0; region_idx < layer->region_count(); region_idx++)
-			{
-				fs << "\t" << layer->get_region(region_idx)->fill_surfaces.size();
-			}
-
-			fs << std::endl;
-		}
-	}
-
-	/*******************using immediate window for debug****************************/
+    ///////////////////////////////////////////////////////////////////////////////
 }

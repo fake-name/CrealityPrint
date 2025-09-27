@@ -241,7 +241,8 @@ wxString Field::get_tooltip_text(const wxString &default_string)
         tooltip_text = tooltip + "\n" + 
         _(L("parameter name")) + "\t: " + opt_id;
  #endif
-	return tooltip_text;
+    return "";
+	//return tooltip_text;
 }
 
 bool Field::is_matched(const std::string& string, const std::string& pattern)
@@ -727,7 +728,7 @@ void TextCtrl::BUILD() {
     if (m_opt.is_code)
         temp->SetFont(Label::Body_13);
 
-    
+    text_ctrl->SetFont(Label::Body_14);
     temp->SetForegroundColour(StateColor::darkModeColorFor(*wxBLACK));
 	wxGetApp().UpdateDarkUI(temp);
 
@@ -900,6 +901,10 @@ void TextCtrl::msw_rescale()
         size.SetHeight(lround(opt_height*m_em_unit));
     if (m_opt.width >= 0) size.SetWidth(m_opt.width*m_em_unit);
 
+    const int padding  = 4;
+    auto  size_add = wxSize(size.GetWidth(), size.GetHeight() + padding);
+
+
     if (size != wxDefaultSize)
     {
         wxTextCtrl *field = text_ctrl(); // BBS
@@ -909,11 +914,11 @@ void TextCtrl::msw_rescale()
             field->SetMinSize(size);
         if (field != window)
         {            
-            window->SetMinSize(size);
+            window->SetMinSize(size_add);
             if(nullptr != dynamic_cast<::TextInput *>(window))
             {
 				dynamic_cast<::TextInput*>(window)->Rescale();
-				window->SetSize(size);//Do not change the current form size when displaying multiple lines
+                window->SetSize(size_add); // Do not change the current form size when displaying multiple lines
             }
 			else if (nullptr != dynamic_cast<::TextInputCtrl*>(window))
             {
@@ -1317,6 +1322,8 @@ void Choice::BUILD()
 
     // BBS
     temp->SetTextLabel(_L(m_opt.sidetext));
+    temp->SetFont(Label::Body_14);
+    temp->GetDropDown().SetFont(Label::Body_14);
     m_combine_side_text = true;
 
 #ifdef __WXGTK3__

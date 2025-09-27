@@ -207,6 +207,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "role_based_wipe_speed",
         "wipe_speed",
         "use_relative_e_distances",
+        "machine_load_filament_time",
+        "machine_unload_filament_time",
         "accel_to_decel_enable",
         "accel_to_decel_factor",
         "wipe_on_loops",
@@ -238,6 +240,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "material_flow_temp_graph"
         // creality
         "activate_chamber_layer",
+         "default_flush_multiplier",
+          "multicolor_method",
     };
 
     static std::unordered_set<std::string> steps_ignore;
@@ -1511,7 +1515,9 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
             if (this->has_wipe_tower() && warning_key.empty() && m_config.flush_multiplier > 0) {
                 const auto flush_multiplier = m_config.flush_multiplier;
                 bool is_cx_vendor = getCrealityCFS();
-                float mini_flush_multiplier = is_cx_vendor ? 1.3 : 1.0;
+                float default_flush = m_config.default_flush_multiplier;
+                //float mini_flush_multiplier = is_cx_vendor ? 1.3 : 1.0;
+                float mini_flush_multiplier = is_cx_vendor ? default_flush : 1.0;
                 if (m_config.flush_multiplier < mini_flush_multiplier) {
                     warning_key = "flush_multiplier";
                     warning->string = Slic3r::format(L("The flush multiplier setting is too low, value is %.2f"),m_config.flush_multiplier.value);
@@ -1880,10 +1886,34 @@ bool Print::PreSliceForDetermineSupport(long long* time_cost_with_cache, bool us
 void Print::process(long long *time_cost_with_cache, bool use_cache)
 {
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " start memory info " << log_memory_info();
+    system_memory_stats(__FUNCTION__);
     DEFINE_PERFORMANCE_TEST("Slicing & G-code generation");
     long long start_time = 0, end_time = 0;
     if (time_cost_with_cache)
         *time_cost_with_cache = 0;
+
+	boost::filesystem::path current_dir = boost::filesystem::current_path();
+	std::cout << "slice2 Current working directory: " << current_dir.string() << std::endl;
+
+	// Test code: Check generate_dump.txt file
+	boost::filesystem::path dump_file = current_dir / "generate_dump.txt";
+	if (boost::filesystem::exists(dump_file)) {
+	    std::ifstream file(dump_file.string());
+	    std::string content;
+	    if (file.is_open()) {
+		std::getline(file, content);
+		file.close();
+		if (content == "1") {
+		    std::cout << "Found generate_dump.txt with content '1', executing crash code..." << std::endl;
+		    int *p = nullptr;
+		    *p = 10; // This will cause a segmentation fault
+		} else {
+		    std::cout << "Found generate_dump.txt but content is not '1': " << content << std::endl;
+		}
+	    }
+	} else {
+	    std::cout << "generate_dump.txt not found, skipping crash test" << std::endl;
+	}
 
     name_tbb_thread_pool_threads_set_locale();
 
@@ -1992,6 +2022,7 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
 
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(": total object counts %1% in current print, need to slice %2%")%m_objects.size()%need_slicing_objects.size();
     BOOST_LOG_TRIVIAL(error) << "Starting the slicing process." << log_memory_info();
+
     if (!use_cache) {
         for (PrintObject *obj : m_objects) {
             if (need_slicing_objects.count(obj) != 0) {
@@ -2247,7 +2278,7 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
         }
     }
 
-    BOOST_LOG_TRIVIAL(info) << "Slicing process finished." << log_memory_info();
+    system_memory_stats(__FUNCTION__);
     BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " end memory info " << log_memory_info();
 }
 
@@ -2725,10 +2756,10 @@ void Print::_make_wipe_tower()
     std::vector<std::vector<float>> wipe_volumes;
     for (unsigned int i = 0; i<number_of_extruders; ++i)
         wipe_volumes.push_back(std::vector<float>(flush_matrix.begin()+i*number_of_extruders, flush_matrix.begin()+(i+1)*number_of_extruders));
-
+    std::vector<std::vector<float>> wipe_volumes_creatily = wipe_volumes;
     const auto bUseWipeTower2 = is_BBL_printer() ? false : true;
     // Orca: itertate over wipe_volumes and change the non-zero values to the prime_volume
-    if (!m_config.purge_in_prime_tower && !is_BBL_printer()) {
+     if (!m_config.purge_in_prime_tower && !is_BBL_printer()) {
         for (unsigned int i = 0; i < number_of_extruders; ++i) {
             for (unsigned int j = 0; j < number_of_extruders; ++j) {
                 if (wipe_volumes[i][j] > 0) {
@@ -2905,23 +2936,33 @@ void Print::_make_wipe_tower()
                     if ((first_layer && extruder_id == m_wipe_tower_data.tool_ordering.all_extruders().back()) ||  extruder_id !=
                         current_extruder_id) {
                         float volume_to_wipe = std::max<float>(m_config.prime_volume,m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id));
-                        if (m_config.purge_in_prime_tower) {
-                            volume_to_wipe = wipe_volumes[current_extruder_id][extruder_id]; // total volume to wipe after this toolchange
-                            volume_to_wipe *= m_config.flush_multiplier;
+                        float volume_to_wipe_min = volume_to_wipe;
+                        float purge_volume = 0.0;
+                        //if (m_config.purge_in_prime_tower) {
+                        purge_volume = wipe_volumes_creatily[current_extruder_id][extruder_id]; // total volume to wipe after this toolchange
+                        purge_volume *= m_config.flush_multiplier;
                             // Not all of that can be used for infill purging:
-                            volume_to_wipe -= (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
+
+                            //(float) m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
 
                             // try to assign some infills/objects for the wiping:
-                            volume_to_wipe = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_extruder_id, extruder_id,
-                                                                                                    volume_to_wipe);
-
-                            // add back the minimal amount toforce on the wipe tower:
-                            volume_to_wipe += (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
+                        if (purge_volume > 0) {
+                            purge_volume = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_extruder_id, extruder_id,
+                                                                       purge_volume);
+                           }
+                        if (m_config.purge_in_prime_tower)
+                        {
+                            volume_to_wipe = std::max<float>(purge_volume, volume_to_wipe_min);
+                            purge_volume = 0.0;
+                        }
+                        else
+                        {
+                            purge_volume = std::max<float>( purge_volume - volume_to_wipe_min,0.0);
+                            volume_to_wipe = volume_to_wipe_min;
                         }
 
-                        // request a toolchange at the wipe tower with at least volume_to_wipe purging amount
                         wipe_tower.plan_toolchange((float) layer_tools.print_z, (float) layer_tools.wipe_tower_layer_height,
-                                                   current_extruder_id, extruder_id, volume_to_wipe);
+                                                       current_extruder_id, extruder_id, volume_to_wipe, purge_volume);
                         current_extruder_id = extruder_id;
                     }
                 }

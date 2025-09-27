@@ -28,6 +28,7 @@ enum class AnalyticsDataEventType {
     ANALYTICS_PREFERENCES_CHANGED,    //user preferences changed
     ANALYTICS_SOFTWARE_LAUNCH,     //creality slicer launch
     ANALYTICS_SOFTWARE_CRASH,       // software crash
+    ANALYTICS_BAD_ALLOC,           // software crash
     ANALYTICS_SOFTWARE_CLOSE,      // software close
     ANALYTICS_DEVICE_INFO,         // print device info (un_login), local net(from deviceInfo.json)
     ANALYTICS_ACCOUNT_DEVICE_INFO  // account device info(user login), from account_device_info.json
@@ -84,6 +85,7 @@ private:
     void uploadPreferencesChangedData();
     void uploadSoftwareLaunchData();
     void uploadSoftwareCrashData();
+    void uploadSoftwareBadAlloc();
     void uploadSoftwareCloseData();
     void uploadDeviceInfoData();
     void uploadAccountDeviceInfoData();

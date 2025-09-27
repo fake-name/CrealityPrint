@@ -27,6 +27,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/trivial.hpp>
 
 #include <wx/progdlg.h>
 #include <wx/listbook.h>
@@ -2577,14 +2578,40 @@ void ObjectList::del_layer_from_object(const int obj_idx, const t_layer_height_r
 
     take_snapshot("Remove height range");
 
+    // Diagnostics: log before erase to ease postmortem analysis
+    auto &ranges = object(obj_idx)->layer_config_ranges;
+    ModelConfig *victim_cfg_ptr = &del_range->second;
+    BOOST_LOG_TRIVIAL(warning) << "[LayerRangeErase] obj_idx=" << obj_idx
+                            //<< ", range=[" << del_range->first.lower << "," << del_range->first.upper << "]"
+                            << ", victim_cfg_ptr=" << victim_cfg_ptr
+                            << ", ranges_size_before=" << ranges.size();
+
+    // Minimal safety: clear layer tab configs to avoid dangling UI pointers
+    if (auto tab_layer = dynamic_cast<TabPrintModel*>(wxGetApp().get_layer_tab())) {
+        tab_layer->set_model_config({});
+        BOOST_LOG_TRIVIAL(warning) << "[LayerRangeErase] Cleared TabPrintLayer m_object_configs before erase";
+    }
+
     object(obj_idx)->layer_config_ranges.erase(del_range);
+
+    BOOST_LOG_TRIVIAL(warning) << "[LayerRangeErase] ranges_size_after=" << ranges.size();
 
     changed_object(obj_idx);
 }
 
 void ObjectList::del_layers_from_object(const int obj_idx)
 {
-    object(obj_idx)->layer_config_ranges.clear();
+    // Ensure UI layer settings do not hold dangling pointers into layer_config_ranges we are about to clear.
+    if (auto tab_layer = dynamic_cast<TabPrintModel*>(wxGetApp().get_layer_tab()))
+        tab_layer->set_model_config({});
+
+    auto &ranges = object(obj_idx)->layer_config_ranges;
+    BOOST_LOG_TRIVIAL(warning) << "[LayerRangesClear] obj_idx=" << obj_idx
+                            << ", ranges_size_before=" << ranges.size();
+
+    ranges.clear();
+
+    BOOST_LOG_TRIVIAL(info) << "[LayerRangesClear] ranges_size_after=" << ranges.size();
 
     changed_object(obj_idx);
 }
@@ -3929,6 +3956,18 @@ void ObjectList::delete_from_model_and_list(const ItemType type, const int obj_i
     if (!(type & (itObject | itVolume | itInstance)))
         return;
 
+    // Log deletion operation
+    if (obj_idx >= 0 && objects() && obj_idx < (int)objects()->size()) {
+        const ModelObject* obj = (*objects())[obj_idx];
+        if (type & itObject) {
+            BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Object deletion: name='" << obj->name << "', ID=" << obj->id().id << ", volumes=" << obj->volumes.size() << ", instances=" << obj->instances.size() << ", layer_config_ranges=" << obj->layer_config_ranges.size();
+        } else if (type & itVolume) {
+            BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Volume deletion: object_name='" << obj->name << "', object_ID=" << obj->id().id << ", volume_idx=" << sub_obj_idx << ", total_volumes=" << obj->volumes.size();
+        } else if (type & itInstance) {
+            BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Instance deletion: object_name='" << obj->name << "', object_ID=" << obj->id().id << ", instance_idx=" << sub_obj_idx << ", total_instances=" << obj->instances.size();
+        }
+    }
+
     take_snapshot("Delete selected");
 
     if (type & itObject) {
@@ -3950,12 +3989,25 @@ void ObjectList::delete_from_model_and_list(const std::vector<ItemForDelete>& it
     if (items_for_delete.empty())
         return;
 
+    BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Batch deletion: items_count=" << items_for_delete.size();
+
     m_prevent_list_events = true;
     // BBS
     bool need_update = false;
 
     std::set<size_t> modified_objects_ids;
     for (std::vector<ItemForDelete>::const_reverse_iterator item = items_for_delete.rbegin(); item != items_for_delete.rend(); ++item) {
+        // Log each item being deleted
+        if (item->obj_idx >= 0 && objects() && item->obj_idx < (int)objects()->size()) {
+            const ModelObject* obj = (*objects())[item->obj_idx];
+            if (item->type & itObject) {
+                BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Batch object deletion: name='" << obj->name << "', ID=" << obj->id().id << ", volumes=" << obj->volumes.size() << ", instances=" << obj->instances.size() << ", layer_config_ranges=" << obj->layer_config_ranges.size();
+            } else if (item->type & itVolume) {
+                BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Batch volume deletion: object_name='" << obj->name << "', object_ID=" << obj->id().id << ", volume_idx=" << item->sub_obj_idx << ", total_volumes=" << obj->volumes.size();
+            } else if (item->type & itInstance) {
+                BOOST_LOG_TRIVIAL(warning) << "ObjectList::delete_from_model_and_list() - Batch instance deletion: object_name='" << obj->name << "', object_ID=" << obj->id().id << ", instance_idx=" << item->sub_obj_idx << ", total_instances=" << obj->instances.size();
+            }
+        }
         if (!(item->type & (itObject | itVolume | itInstance)))
             continue;
         if (item->type & itObject) {

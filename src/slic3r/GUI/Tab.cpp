@@ -56,10 +56,12 @@
 #include "BedShapeDialog.hpp"
 #include "libslic3r/GCode/Thumbnails.hpp"
 
+#include <boost/log/trivial.hpp>
 #include <wx/dataview.h>
 
 #include "BedShapeDialog.hpp"
 // #include "BonjourDialog.hpp"
+#include "AccelerationAndSpeedLimitDialog.hpp"
 #ifdef WIN32
 	#include <commctrl.h>
 #endif // WIN32
@@ -217,6 +219,8 @@ void Tab::create_preset_tab()
         m_presets_choice = new TabPresetComboBox(panel, m_type);
         // m_presets_choice->SetFont(Label::Body_10); // BBS
         m_presets_choice->SetSize(0, 0);
+        m_presets_choice->SetFont(Label::Body_14);
+        m_presets_choice->GetDropDown().SetFont(Label::Body_14);
         m_presets_choice->set_selection_changed_function([this](int selection) {
             if (!m_presets_choice->selection_is_changed_according_to_physical_printers())
             {
@@ -821,8 +825,9 @@ void Tab::decorate()
         Field*      field = nullptr;
         bool        option_without_field = false;
 
-        if (opt.first == "printable_area" ||
-            opt.first == "compatible_prints" || opt.first == "compatible_printers")
+        if (opt.first == "printable_area" || 
+            opt.first == "compatible_prints" || opt.first == "compatible_printers" ||
+            opt.first == "acceleration_limit_mess_enable" || opt.first == "speed_limit_to_height_enable")
             option_without_field = true;
 
         if (!option_without_field) {
@@ -1522,6 +1527,15 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
     }
 
     if (opt_key == "support_type") {
+        int st_i = -1;
+        try {
+            st_i = boost::any_cast<int>(value);
+        } catch (...) {
+            return;
+        }
+        wxCommandEvent evt(EVT_SUPPORT_TYPE_CHANGED);
+        evt.SetInt(st_i);
+        wxPostEvent(wxGetApp().plater(), evt);
         DynamicPrintConfig new_conf = *m_config;
      /*   new_conf.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stNormal));
         m_config->opt_enum<SupportType>("support_type");*/
@@ -2248,6 +2262,9 @@ void TabPrint::build()
 
         optgroup = page->new_optgroup(L("Infill"), L"param_infill");
         optgroup->append_single_option_line("sparse_infill_density");
+        optgroup->append_single_option_line("tpms_start_infill_density");
+        optgroup->append_single_option_line("tpms_end_infill_density");
+        optgroup->append_single_option_line("tpms_gradual_direction");
         optgroup->append_single_option_line("ai_infill");
         optgroup->append_single_option_line("sparse_infill_pattern", "fill-patterns#infill types and their properties of sparse");
         optgroup->append_single_option_line("infill_anchor");
@@ -2256,6 +2273,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("gap_fill_target");
         optgroup->append_single_option_line("filter_out_gap_fill");
         optgroup->append_single_option_line("infill_wall_overlap");
+        optgroup->append_single_option_line("external_infill_margin");
 
         optgroup = page->new_optgroup(L("Advanced"), L"param_advanced");
         optgroup->append_single_option_line("infill_direction");
@@ -2333,9 +2351,15 @@ void TabPrint::build()
         optgroup = page->new_optgroup(L("Advanced"), L"param_advanced", 15);
         optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope", "extrusion-rate-smoothing");
         optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope_segment_length", "extrusion-rate-smoothing");
-        optgroup->append_single_option_line("acceleration_limit_mess_enable");
+        //optgroup->append_single_option_line("acceleration_limit_mess_enable");
+        create_line_with_widget(optgroup.get(), "acceleration_limit_mess_enable", "custom-svg-and-png-bed-textures_124612",[this](wxWindow* parent) { 
+                return create_limit_mess_enable_widget("acceleration_limit_mess_enable", parent);
+            });
         optgroup->append_single_option_line("acceleration_limit_mess");
-        optgroup->append_single_option_line("speed_limit_to_height_enable");
+        //optgroup->append_single_option_line("speed_limit_to_height_enable");
+        create_line_with_widget(optgroup.get(), "speed_limit_to_height_enable", "custom-svg-and-png-bed-textures_124612",[this](wxWindow* parent) { 
+                return create_limit_mess_enable_widget("speed_limit_to_height_enable", parent);
+            });
         optgroup->append_single_option_line("speed_limit_to_height");
 
     page = add_options_page(L("Support"), "custom-gcode_support"); // ORCA: icon only visible on placeholders
@@ -2600,6 +2624,70 @@ void TabPrint::rebind_infill_changed_event()
     }
 }
 
+wxSizer* TabPrint::create_limit_mess_enable_widget(const std::string& title, wxWindow* parent)
+{ 
+    bool is_dark = Slic3r::GUI::wxGetApp().dark_mode();
+    wxStaticText*   text = new wxStaticText(parent, wxID_ANY, "");
+    text->SetMinSize(wxSize(FromDIP(16), FromDIP(24)));
+    text->SetMaxSize(wxSize(FromDIP(16), FromDIP(24)));
+    text->SetSize(wxSize(FromDIP(16), FromDIP(24)));
+    //text->SetBackgroundColour("#ff0000");
+    Button* btn = new Button(parent, "    " + _(L("Set")) + " ", "printer");
+    btn->SetFont(wxGetApp().normal_font());
+    btn->SetSize(btn->GetBestSize());
+    btn->SetMinSize(wxSize(FromDIP(122), FromDIP(24)));
+    btn->SetMaxSize(wxSize(FromDIP(122), FromDIP(24)));
+    btn->SetSize(wxSize(FromDIP(122), FromDIP(24)));
+    btn->SetCornerRadius(FromDIP(4));
+    btn->SetBorderColor(wxColour("#DBDBDB"));
+    btn->SetBackgroundColour(is_dark ? 0x4B4B4D : 0xFFFFFF);
+    btn->SetBackgroundColor(StateColor(std::pair<wxColour, int>(wxColour(is_dark ? 0x4B4B4D : 0xFFFFFF), StateColor::Pressed),
+                                       std::pair<wxColour, int>(wxColour(is_dark ? 0x4B4B4D : 0xFFFFFF), StateColor::Hovered),
+                                       std::pair<wxColour, int>(wxColour(is_dark ? 0x4B4B4D : 0xFFFFFF), StateColor::Normal)));
+    btn->Bind(wxEVT_ENTER_WINDOW, [=](wxMouseEvent& e) {
+        btn->SetBorderColor(wxColour("#18CC5C"));
+    });
+    btn->Bind(wxEVT_LEAVE_WINDOW, [=](wxMouseEvent& e) {
+        btn->SetBorderColor(wxColour("#DBDBDB"));
+    });
+    auto sizer = new wxBoxSizer(wxHORIZONTAL);
+    sizer->Add(text, 0, wxLEFT, FromDIP(50));
+    sizer->Add(btn, 0, wxLEFT, FromDIP(50));
+
+    btn->Bind(wxEVT_BUTTON, ([this, title](wxCommandEvent e) {
+        if (title == "acceleration_limit_mess_enable") {
+            AccelerationAndSpeedLimitDialog dlg("acceleration_limit_mess_enable", _L("Weight limit speed and acceleration"),
+                                                          wxGetApp().mainframe);
+            dlg.build_dialog(*m_presets->get_selected_preset().config.option<ConfigOptionBool>("acceleration_limit_mess_enable"),
+                            *m_presets->get_selected_preset().config.option<ConfigOptionString>("acceleration_limit_mess"),
+                            *m_config->option<ConfigOptionBool>("acceleration_limit_mess_enable"),
+                            *m_config->option<ConfigOptionString>("acceleration_limit_mess"));
+            dlg.Center();
+            if (dlg.ShowModal() == wxID_OK) {
+                load_key_value("acceleration_limit_mess_enable", dlg.getCheckbox());
+                load_key_value("acceleration_limit_mess", dlg.getData());
+                update_changed_ui();
+                on_presets_changed();
+            }
+        } else if (title == "speed_limit_to_height_enable") {
+            AccelerationAndSpeedLimitDialog dlg("speed_limit_to_height_enable", _L("Height limit speed and acceleration"),
+                                                wxGetApp().mainframe);
+            dlg.build_dialog(*m_presets->get_selected_preset().config.option<ConfigOptionBool>("speed_limit_to_height_enable"),
+                             *m_presets->get_selected_preset().config.option<ConfigOptionString>("speed_limit_to_height"),
+                             *m_config->option<ConfigOptionBool>("speed_limit_to_height_enable"),
+                             *m_config->option<ConfigOptionString>("speed_limit_to_height"));
+            dlg.Center();
+            if (dlg.ShowModal() == wxID_OK) {
+                load_key_value("speed_limit_to_height_enable", dlg.getCheckbox());
+                load_key_value("speed_limit_to_height", dlg.getData());
+                update_changed_ui();
+                on_presets_changed();
+            }
+        }
+    }));
+    return sizer;
+}
+
 // Reload current config (aka presets->edited_preset->config) into the UI fields.
 void TabPrint::reload_config()
 {
@@ -2665,7 +2753,7 @@ void TabPrint::toggle_options()
         bool             has_ai_infill   = m_config->opt_bool("ai_infill");
         auto             def2            = print_config_def.get("sparse_infill_pattern");
         std::vector<int> enum_set_AI     = {1, 2};                                                         //{ipRectilinear,ipGrid};
-        std::vector<int> enum_set_Normal = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,18,19,20,21,22}; //{ipConcentric,
+        std::vector<int> enum_set_Normal = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,18,19,20,21,22,23,24,25}; //{ipConcentric,
                                                                                                            // ipRectilinear,
                                                                                                            // ipGrid,
                                                                                                            // ipLine,
@@ -2687,7 +2775,8 @@ void TabPrint::toggle_options()
                                                                                                             // ipCross3d,
                                                                                                             // ipquarter_cubic,
                                                                                                             // iptetrahedral,
-                                                                                                            // ipTpmsD};
+                                                                                                            // ipTpmsD
+                                                                                                            // ipTpmsGradual123};
         auto& set2        = has_ai_infill ? enum_set_AI : enum_set_Normal;
         auto& opt2        = const_cast<ConfigOptionDef&>(field2->m_opt);
         auto  cb2         = dynamic_cast<ComboBox*>(choice2->window);
@@ -2720,6 +2809,13 @@ void TabPrint::toggle_options()
         }
     }
 
+    //ipGradualTpmsG, ipGradualTpmsD, ipGradualTpmsFKS,
+    auto cur_infillpattern_type = m_config->opt_enum<InfillPattern>("sparse_infill_pattern");
+    bool is_gradual_tpms = std::set<InfillPattern>{ipGradualTpmsG, ipGradualTpmsD, ipGradualTpmsFKS}.count(cur_infillpattern_type) != 0;
+    toggle_line("tpms_start_infill_density", is_gradual_tpms);
+    toggle_line("tpms_end_infill_density", is_gradual_tpms);
+    toggle_line("tpms_gradual_direction", is_gradual_tpms);
+    toggle_line("sparse_infill_density", !is_gradual_tpms);
 
 
 }
@@ -2849,6 +2945,12 @@ void TabPrintModel::build()
 void TabPrintModel::set_model_config(std::map<ObjectBase *, ModelConfig *> const & object_configs)
 {
     m_object_configs = object_configs;
+    BOOST_LOG_TRIVIAL(warning) << "[TabPrintModel::set_model_config] this=" << this << ", type=" << (int)m_type
+                              << ", objects=" << m_object_configs.size();
+    if (!m_object_configs.empty()) {
+        auto it = m_object_configs.begin();
+        BOOST_LOG_TRIVIAL(warning) << "[TabPrintModel::set_model_config] first obj=" << it->first << ", cfg_ptr=" << it->second;
+    }
     m_prints.get_selected_preset().config.apply(*m_parent_tab->m_config);
     update_model_config();
 }
@@ -2941,12 +3043,14 @@ void TabPrintModel::update_model_config()
 void TabPrintModel::reset_model_config()
 {
     if (m_object_configs.empty()) return;
+    BOOST_LOG_TRIVIAL(warning) << "[TabPrintModel::reset_model_config] this=" << this << ", objects=" << m_object_configs.size();
     wxGetApp().plater()->take_snapshot(std::string("Reset Options"));
     for (auto config : m_object_configs) {
         auto rmkeys = intersect(m_keys, config.second->keys());
         for (auto& k : rmkeys) {
             config.second->erase(k);
         }
+        BOOST_LOG_TRIVIAL(warning) << "[TabPrintModel::reset_model_config] erased keys for obj=" << config.first << ", cfg_ptr=" << config.second;
         notify_changed(config.first);
     }
     update_model_config();
@@ -3758,8 +3862,8 @@ void TabFilament::build()
         optgroup->append_line(line);
         //BBS
         add_filament_overrides_page();
-        const int gcode_field_height = 15; // 150
-        const int notes_field_height = 25; // 250
+        const int gcode_field_height = 150; // 150
+        const int notes_field_height = 250; // 250
 
         auto edit_custom_gcode_fn = [this](const t_config_option_key& opt_key) { edit_custom_gcode(opt_key); };
 
@@ -4525,6 +4629,7 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("pellet_modded_printer", "pellet-flow-coefficient");
         optgroup->append_single_option_line("bbl_use_printhost");
         optgroup->append_single_option_line("disable_m73");
+       
         option = optgroup->get_option("thumbnails");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option, "thumbnails");
@@ -4571,7 +4676,7 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("machine_load_filament_time");
         optgroup->append_single_option_line("machine_unload_filament_time");
         optgroup->append_single_option_line("time_cost");
-        
+        optgroup->append_single_option_line("multicolor_method");
         optgroup  = page->new_optgroup(L("Cooling Fan"), "param_cooling_fan");
         Line line = Line{ L("Fan speed-up time"), optgroup->get_option("fan_speedup_time").opt.tooltip };
         line.append_option(optgroup->get_option("fan_speedup_time"));
@@ -5263,9 +5368,12 @@ void TabPrinter::toggle_options()
 
     //BBS: whether the preset is Bambu Lab printer
     bool is_BBL_printer = false;
+    bool is_CX_printer  = false;
     if (m_preset_bundle) {
        is_BBL_printer = wxGetApp().preset_bundle->is_bbl_vendor();
+       is_CX_printer  = wxGetApp().preset_bundle->is_cx_vendor();
     }
+
 
     bool have_multiple_extruders = true;
     //m_extruders_count > 1;
@@ -5278,6 +5386,9 @@ void TabPrinter::toggle_options()
         for (auto el :
              {"scan_first_layer", "machine_load_filament_time", "machine_unload_filament_time", "bbl_calib_mark_logo", "bbl_use_printhost"})
           toggle_line(el, is_BBL_printer);
+
+        for (auto el : {"machine_load_filament_time", "machine_unload_filament_time"})
+            toggle_line(el, is_CX_printer);
 
         // SoftFever: hide non-BBL settings
         for (auto el : {"use_firmware_retraction", "use_relative_e_distances", "support_multi_bed_types", "pellet_modded_printer"})

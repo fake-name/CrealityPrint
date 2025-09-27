@@ -420,6 +420,19 @@ ImVec2 DispConfig::boldText(const std::string&str,float scale) {
     return sz;
 }
 
+ImVec2 DispConfig::boldTextWrapped(const std::string& str, float scale, float wrap_start_x)
+{
+    Loc_pushBoldStyle(scale);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX());
+    ImGui::PushTextWrapPos(wrap_start_x); // 设置换行起点
+    ImGui::TextWrapped("%s", str.c_str());
+    ImGui::PopTextWrapPos();
+    Loc_popBoldStyle(scale);
+    return ImGui::CalcTextSize(str.c_str()); //  注意：TextWrapped 不返回实际尺寸
+}
+
+
+
 ImU32 DispConfig::getColorImU32(ColorType ct) {
     ImU32 ret = 0; ;
     switch (ct) {

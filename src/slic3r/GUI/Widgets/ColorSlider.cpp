@@ -1,108 +1,175 @@
 #include "ColorSlider.hpp"
 
-wxBEGIN_EVENT_TABLE(ColorSlider, wxSlider)
+wxBEGIN_EVENT_TABLE(ColorSlider, wxControl)
     EVT_PAINT(ColorSlider::OnPaint)
     EVT_ERASE_BACKGROUND(ColorSlider::OnEraseBackground)
-    EVT_SCROLL_THUMBTRACK(ColorSlider::OnScrollUpdate)
-    EVT_SCROLL_CHANGED(ColorSlider::OnScrollUpdate) 
-    EVT_SCROLL_THUMBRELEASE(ColorSlider::OnScrollUpdate) 
     EVT_SET_FOCUS(ColorSlider::OnFocusChange) 
-    EVT_KILL_FOCUS(ColorSlider::OnFocusChange)
+    EVT_KILL_FOCUS(ColorSlider::OnFocusChange) 
+    EVT_LEFT_DOWN(ColorSlider::OnLeftDown) 
+    EVT_LEFT_UP(ColorSlider::OnLeftUp)
+    EVT_MOTION(ColorSlider::OnMotion) 
+    EVT_MOUSE_CAPTURE_LOST(ColorSlider::OnCaptureLost)
     EVT_SYS_COLOUR_CHANGED(ColorSlider::OnSysColourChanged)
                     wxEND_EVENT_TABLE()
 
 
     ColorSlider::ColorSlider(wxWindow* parent, wxWindowID id, int value, int minValue, int maxValue, const wxPoint& pos, const wxSize& size, long style)
-    : wxSlider(parent, id, value, minValue, maxValue, pos, size, style)
+    : wxControl(parent, id, pos, size, style | wxBORDER_NONE)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT); 
-    SetBackgroundColour(GetBackgroundColour());
+    SetRange(minValue, maxValue);
+    SetValue(value);
     CallAfter([this] {
-        UpdatePaletteFromSystem();
+        UpdatePaletteFromEnv();
         Refresh();
     });
 }
 
 void ColorSlider::OnEraseBackground(wxEraseEvent& event)
 {
-    
-}
-
-void ColorSlider::OnScrollUpdate(wxScrollEvent& event)
-{
-    Refresh();  
-    Update();
-    event.Skip();
 }
 
 void ColorSlider::OnFocusChange(wxFocusEvent& event)
 {
-    Refresh();   
-    Update();
+    Refresh(false);   
+    //Update();
     event.Skip();
+}
+
+void ColorSlider::SetRange(int minVal, int maxVal)
+{
+    if (maxVal < minVal)
+        std::swap(minVal, maxVal);
+    m_min   = minVal;
+    m_max   = maxVal;
+    m_value = std::clamp(m_value, m_min, m_max);
+    Refresh(false);
 }
 
 void ColorSlider::SetValue(int value)
 {
-    wxSlider::SetValue(value);
-    Refresh(); 
-    Update();
+    value = std::clamp(value, m_min, m_max);
+    if (value == m_value)
+        return;
+    m_value = value;
+    Refresh(false);
+
+    wxCommandEvent ev(wxEVT_SLIDER, GetId());
+    ev.SetEventObject(this);
+    ev.SetInt(m_value);
+    GetEventHandler()->ProcessEvent(ev);
 }
 
-void ColorSlider::OnPaint(wxPaintEvent& event)
+
+void ColorSlider::OnPaint(wxPaintEvent&)
 {
     wxAutoBufferedPaintDC dc(this);
-    PrepareDC(dc);
+    dc.SetBackground(wxBrush(GetParent() ? GetParent()->GetBackgroundColour() : GetBackgroundColour()));
+    dc.Clear();
 
-    dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
-    dc.Clear();                                       
+#if wxUSE_GRAPHICS_CONTEXT
+    UpdatePaletteFromEnv();
 
-    std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::Create(dc));
+    wxGCDC gdc(dc);
+    Draw(gdc);
+#endif
+}
+
+void ColorSlider::Draw(wxGCDC& gdc)
+{
+    auto* gc = gdc.GetGraphicsContext();
     if (!gc)
         return;
 
-    wxSize sz     = GetSize();
-    int    width  = sz.GetWidth();
-    int    height = sz.GetHeight();
+    const wxSize cs     = GetClientSize();
+    const int    width  = cs.GetWidth();
+    const int    height = cs.GetHeight();
+    if (width <= 0 || height <= 0)
+        return;
 
-    const int trackHeight = 6;
-    const int trackRadius = trackHeight / 2;
-    const int trackY      = height / 2 - trackHeight / 2;
+    const int trackH = TrackHeightDIP();
+    const int trackR = trackH / 2;
+    const int pad    = PaddingDIP();
+    const int trackY = height / 2 - trackH / 2;
 
-    double ratio  = static_cast<double>(GetValue() - GetMin()) / (GetMax() - GetMin());
+    const int minX = THUMB_RADIUS + pad;
+    const int maxX = width - THUMB_RADIUS - pad;
+    if (maxX <= minX)
+        return;
 
-    double    minThumbX = THUMB_RADIUS + 7;
-    double    maxThumbX = width - THUMB_RADIUS - 7;
+    const int range = std::max(1, m_max - m_min);
+    double    ratio = double(m_value - m_min) / double(range);
+    ratio           = std::clamp(ratio, 0.0, 1.0);
 
-    double thumbX = static_cast<int>(ratio * (maxThumbX - minThumbX)) + minThumbX;
-    double thumbY = height / 2;
+    const double thumbX = minX + ratio * (maxX - minX);
+    const double thumbY = height / 2.0;
 
     gc->SetPen(*wxTRANSPARENT_PEN);
+
     gc->SetBrush(wxBrush(mTrackBg));
-    gc->DrawRoundedRectangle(THUMB_RADIUS, trackY, width - 2 * THUMB_RADIUS, trackHeight, trackRadius);
+    gc->DrawRoundedRectangle(THUMB_RADIUS, trackY, width - 2 * THUMB_RADIUS, trackH, trackR);
 
-    gc->SetBrush(wxBrush(mThumbFill)); 
-    gc->DrawRoundedRectangle(THUMB_RADIUS, trackY, thumbX - THUMB_RADIUS, trackHeight, trackRadius);
+    gc->SetBrush(wxBrush(mThumbFill));
+    gc->DrawRoundedRectangle(THUMB_RADIUS, trackY, thumbX - THUMB_RADIUS, trackH, trackR);
 
-    gc->SetBrush(wxBrush(mThumbFill)); 
-    gc->SetPen(wxPen(*wxWHITE, 2));            
+    gc->SetBrush(wxBrush(mThumbFill));
+    gc->SetPen(wxPen(mThumbRing, FromDIP(2, this)));
     gc->DrawEllipse(thumbX - THUMB_RADIUS, thumbY - THUMB_RADIUS, THUMB_RADIUS * 2, THUMB_RADIUS * 2);
 }
 
 bool ColorSlider::IsDarkAppearance() const
 {
-#if wxCHECK_VERSION(3, 1, 6)
-    return wxSystemSettings::GetAppearance().IsDark();
-#else
     const wxWindow* ref = GetParent();
     const wxColour  bg  = ref ? ref->GetBackgroundColour() : wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
     const double    r = bg.Red() / 255.0, g = bg.Green() / 255.0, b = bg.Blue() / 255.0;
     const double    L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     return L < 0.5;
-#endif
 }
 
-void ColorSlider::UpdatePaletteFromSystem()
+void ColorSlider::SetValueFromXCoord(int x, bool fireEvent)
+{
+    const int width = GetClientSize().GetWidth();
+    const int minX  = THUMB_RADIUS + PaddingDIP();
+    const int maxX  = width - THUMB_RADIUS - PaddingDIP();
+    if (maxX <= minX)
+        return;
+
+    double ratio  = double(std::clamp(x, minX, maxX) - minX) / double(maxX - minX);
+    int    newVal = m_min + int(std::lround(ratio * (m_max - m_min)));
+    newVal        = std::clamp(newVal, m_min, m_max);
+
+    if (fireEvent)
+        SetValue(newVal);
+    else {
+        m_value = newVal;
+        Refresh(false);
+    }
+}
+
+void ColorSlider::OnLeftDown(wxMouseEvent& e)
+{
+    CaptureMouse();
+    m_dragging = true;
+    SetValueFromXCoord(e.GetX(), /*fireEvent=*/true);
+}
+
+void ColorSlider::OnLeftUp(wxMouseEvent&)
+{
+    if (HasCapture())
+        ReleaseMouse();
+    m_dragging = false;
+}
+
+void ColorSlider::OnMotion(wxMouseEvent& e)
+{
+    if (!m_dragging || !e.Dragging() || !e.LeftIsDown())
+        return;
+    SetValueFromXCoord(e.GetX(), /*fireEvent=*/true);
+}
+
+void ColorSlider::OnCaptureLost(wxMouseCaptureLostEvent&) { m_dragging = false; }
+
+void ColorSlider::UpdatePaletteFromEnv()
 {
     const bool dark = IsDarkAppearance();
     if (dark) {
@@ -118,7 +185,7 @@ void ColorSlider::UpdatePaletteFromSystem()
 
 void ColorSlider::OnSysColourChanged(wxSysColourChangedEvent& e)
 {
-    UpdatePaletteFromSystem();
-    Refresh();
+    UpdatePaletteFromEnv();
+    Refresh(false);
     e.Skip();
 }

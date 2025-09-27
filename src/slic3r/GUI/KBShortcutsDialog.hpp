@@ -20,7 +20,8 @@ public:
     wxWindow *m_tab_text;
 };
 WX_DECLARE_HASH_MAP(int, Select *, wxIntegerHash, wxIntegerEqual, SelectHash);
-
+wxDECLARE_EVENT(EVT_MOUSE_SCHEME_CHANGED, wxCommandEvent);
+class SelectableCard;
 class KBShortcutsDialog : public DPIDialog
 {
     typedef std::pair<std::string, std::string> Shortcut;
@@ -50,6 +51,34 @@ private:
     void fill_shortcuts();
     wxPanel* create_header(wxWindow* parent, const wxFont& bold_font);
     wxPanel* create_page(wxWindow* parent, const ShortcutsItem& shortcuts, const wxFont& font, const wxFont& bold_font);
+
+    // Mouse scheme cards
+    wxPanel*        m_mouse_cards_host = nullptr;
+    SelectableCard * m_card_scheme_a    = nullptr;
+    SelectableCard * m_card_scheme_b    = nullptr; 
+    bool            m_is_a_selected    = true;
+
+    void create_mouse_scheme_cards(wxWindow* parent);
+    void select_scheme(bool choose_a);
+
+    static wxSizer* make_kv_row(wxWindow* parent, const wxString& key, const wxString& desc);
+};
+
+class SelectableCard : public wxPanel
+{
+public:
+    explicit SelectableCard(wxWindow* parent, wxString title);
+    void SetSelected(bool sel);
+    bool IsSelected() const;
+    int  HeaderHeight() const { return FromDIP(32); };
+    void SetHover(bool hov) { if (m_hover != hov) { m_hover = hov; Refresh(); } }
+protected:
+    void OnPaint(wxPaintEvent&);
+
+private:
+    bool     m_selected = false;
+    bool     m_hover = false;
+    wxString m_title;
 };
 
 } // namespace GUI

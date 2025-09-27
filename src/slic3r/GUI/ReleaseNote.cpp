@@ -304,7 +304,7 @@ void CustomScrolledWindow::OnDraw(wxDC& dc)
 }
 
 UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
-    : DPIDialog(parent, wxID_ANY, _L("New version of Creality Print"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX)
+    : DPIDialog(parent, wxID_ANY, _L("New version of Creality Print"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX| wxRESIZE_BORDER)
 {
     std::string icon_path = (boost::format("%1%/images/%2%.ico") % resources_dir() % Slic3r::CxBuildInfo::getIconName()).str();
     SetIcon(wxIcon(encode_path(icon_path.c_str()), wxBITMAP_TYPE_ICO));
@@ -314,6 +314,7 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
     auto        m_line_top   = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 1));
     m_line_top->SetBackgroundColour(wxColour(166, 169, 170));
 
+    wxBoxSizer* m_sizer_body  = new wxBoxSizer(wxHORIZONTAL);
     wxBoxSizer *m_sizer_right = new wxBoxSizer(wxVERTICAL);
 
     m_text_up_info = new Label(this, Label::Head_20, wxEmptyString, LB_AUTO_WRAP);
@@ -340,20 +341,24 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
     //webview
     m_vebview_release_note = CreateTipView(m_simplebook_release_note);
     m_vebview_release_note->SetBackgroundColour(wxColour(0xF8, 0xF8, 0xF8));
-    //m_vebview_release_note->SetSize(wxSize(FromDIP(560), FromDIP(430)));
-    //m_vebview_release_note->SetMinSize(wxSize(FromDIP(560), FromDIP(430)));
-    //m_vebview_release_note->SetMaxSize(wxSize(FromDIP(560), FromDIP(430)));
-    m_vebview_release_note->Bind(wxEVT_WEBVIEW_NAVIGATING,[=](wxWebViewEvent& event){
-        static bool load_url_first = false;
-        if(load_url_first){
-            // Orca: not used in Creality Print
-            // wxLaunchDefaultBrowser(url_line);
-            event.Veto();
-        }else{
-            load_url_first = true;
-        }
-        
+    m_vebview_release_note->SetSize(wxSize(FromDIP(660), FromDIP(430)));
+    m_vebview_release_note->SetMinSize(wxSize(FromDIP(660), FromDIP(430)));
+    m_vebview_release_note->Bind(wxEVT_WEBVIEW_NEWWINDOW, [this](wxWebViewEvent& e) {
+        m_vebview_release_note->LoadURL(e.GetURL());
+        e.Veto();
     });
+    //m_vebview_release_note->SetMaxSize(wxSize(FromDIP(560), FromDIP(430)));
+    //m_vebview_release_note->Bind(wxEVT_WEBVIEW_NAVIGATING,[=](wxWebViewEvent& event){
+    //    static bool load_url_first = false;
+    //    if(load_url_first){
+    //        // Orca: not used in Creality Print
+    //        // wxLaunchDefaultBrowser(url_line);
+    //        event.Veto();
+    //    }else{
+    //        load_url_first = true;
+    //    }
+
+    //});
 
 	fs::path ph(data_dir());
 	ph /= "resources/tooltip/releasenote.html";
@@ -376,6 +381,12 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
     auto sizer_button = new wxBoxSizer(wxHORIZONTAL);
     btnsBg->SetSizer(sizer_button);
 
+    m_bitmap_open_in_browser = new wxStaticBitmap(btnsBg, wxID_ANY, create_scaled_bitmap("open_in_browser", this, 14), wxDefaultPosition,
+                                                  wxDefaultSize, 0);
+    m_link_open_in_browser   = new wxHyperlinkCtrl(btnsBg, wxID_ANY, _L("Open in browser"), "", wxDefaultPosition, wxDefaultSize,
+                                                   wxHL_ALIGN_LEFT);
+    m_link_open_in_browser->SetFont(Label::Body_14);
+    
     StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(21, 191, 89), StateColor::Pressed), std::pair<wxColour, int>(wxColour(21, 191, 89), StateColor::Hovered),
                             std::pair<wxColour, int>(wxColour(142, 142, 159), StateColor::Normal));
 
@@ -434,6 +445,8 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
 
     m_sizer_main->Add(m_line_top, 0, wxEXPAND | wxBOTTOM, 0);
     
+    sizer_button->Add(m_bitmap_open_in_browser, 0, wxALIGN_CENTER | wxLEFT, FromDIP(7));
+    sizer_button->Add(m_link_open_in_browser, 0, wxALIGN_CENTER | wxLEFT, FromDIP(3));
     //sizer_button->Add(m_remind_choice, 0, wxALL | wxEXPAND, FromDIP(5));
     sizer_button->Add(stable_only_label, 0, wxALIGN_CENTRE_VERTICAL | wxLEFT, FromDIP(16));
     sizer_button->Add(m_cb_stable_only, 0, wxALIGN_CENTRE_VERTICAL | wxLEFT, FromDIP(5));
@@ -442,44 +455,46 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
     sizer_button->Add(m_button_skip_version, 0, wxALIGN_CENTRE_VERTICAL | wxALL, FromDIP(5));
     sizer_button->Add(m_button_download, 0, wxALIGN_CENTRE_VERTICAL | wxRIGHT, FromDIP(5));
 
-    std::string lang = GlobalConfig::getInstance()->getCurrentLanguage();
-    wxString    externUrl;
-    if (lang == "zh_CN") {
-        externUrl = "https://wiki.creality.com/zh/software/6-0/release-notes-6-x-x";
-    } else {
-        externUrl = "https://wiki.creality.com/en/software/6-0/release-notes-6-x-x";
-    }
+    //std::string lang = GlobalConfig::getInstance()->getCurrentLanguage();
+    //wxString    externUrl;
+    //if (lang == "zh_CN") {
+    //    externUrl = "https://wiki.creality.com/zh/software/6-0/release-notes-6-x-x";
+    //} else {
+    //    externUrl = "https://wiki.creality.com/en/software/6-0/release-notes-6-x-x";
+    //}
 
-    wxHyperlinkCtrl* link = new wxHyperlinkCtrl(this, wxID_ANY, _L("Check out the release notes to learn more."), externUrl, wxDefaultPosition,
-                                                wxDefaultSize,
-                                                wxHL_ALIGN_LEFT);
-    link->SetVisitedColour(wxColour(0, 0, 255));
-    link->SetFont(Label::Body_14);
+    //wxHyperlinkCtrl* link = new wxHyperlinkCtrl(this, wxID_ANY, _L("Check out the release notes to learn more."), externUrl, wxDefaultPosition,
+    //                                            wxDefaultSize,
+    //                                            wxHL_ALIGN_LEFT);
+    //link->SetVisitedColour(wxColour(0, 0, 255));
+    //link->SetFont(Label::Body_14);
 
-    wxFont font = link->GetFont();
-    font.SetUnderlined(false);
-    link->SetFont(font);
-    link->SetNormalColour(wxColour(255, 0, 0));
-    link->SetVisitedColour(wxColour(255, 0, 0));
+    //wxFont font = link->GetFont();
+    //font.SetUnderlined(false);
+    //link->SetFont(font);
+    //link->SetNormalColour(wxColour(255, 0, 0));
+    //link->SetVisitedColour(wxColour(255, 0, 0));
 
     m_sizer_right->Add(m_text_up_info, 0, wxEXPAND | wxTOP, FromDIP(0));
-    m_sizer_right->Add(m_text_up_subInfo, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
+    m_sizer_right->Add(m_text_up_subInfo, 0, wxEXPAND | wxBOTTOM, FromDIP(0));
     m_sizer_right->Add(m_simplebook_release_note, 1, wxEXPAND | wxRIGHT, 0);
-    m_sizer_right->Add(link, 0, wxEXPAND | wxTOP, FromDIP(10));
-    //m_sizer_right->Add(btnsBg, 1, wxEXPAND | wxTOP, FromDIP(20));
-
+    //m_sizer_right->Add(link, 0, wxEXPAND | wxTOP, FromDIP(10));
+    m_sizer_right->Add(btnsBg, 0, wxEXPAND | wxBOTTOM | wxLEFT | wxRIGHT, FromDIP(0));
+    //m_sizer_right->Add(sizer_button, 0, wxEXPAND | wxRIGHT, FromDIP(20));
     //m_sizer_body->Add(m_brand, 0, wxTOP|wxRIGHT|wxLEFT, FromDIP(15));
+    
+    //m_sizer_main->Add(m_sizer_right, 2, wxEXPAND | wxALL, 16);
+    //m_sizer_right->Add(btnsBg, 0, wxEXPAND, 0);
     //m_sizer_body->Add(0, 0, 0, wxRIGHT, 0);
-    //m_sizer_body->Add(m_sizer_right, 1, wxBOTTOM | wxEXPAND, FromDIP(8));
-    m_sizer_main->Add(m_sizer_right, 2, wxEXPAND | wxALL, 16);
-    m_sizer_main->Add(btnsBg, 0, wxEXPAND, 0);
+    m_sizer_body->Add(m_sizer_right, 1, wxBOTTOM | wxEXPAND, FromDIP(8));
+    m_sizer_main->Add(m_sizer_body, 1, wxEXPAND, 0);
+    m_sizer_main->Add(0, 0, 0, wxBOTTOM, 10);
 
     SetSizer(m_sizer_main);
     Layout();
     Fit();
 
-    SetSize(wxSize(FromDIP(760), FromDIP(736)));
-    SetMinSize(wxSize(FromDIP(760), FromDIP(736)));
+    SetMinSize(GetSize());
 
     Centre(wxBOTH);
     wxGetApp().UpdateDlgDarkUI(this);
@@ -581,33 +596,38 @@ void UpdateVersionDialog::update_version_info(wxString release_note, wxString ve
     //bbs check whether the web display is used
     bool use_web_link       = false;
     url_line                = "";
-    auto split_array        =  splitWithStl(release_note.ToStdString(), "###");
+    auto split_array        = splitWithStl(into_u8(release_note), "##");
 
-    if (split_array.size() >= 3) {
+    if (split_array.size() >= 2) {
         for (auto i = 0; i < split_array.size(); i++) {
             std::string url = split_array[i];
-            if (std::strstr(url.c_str(), "http://") != NULL || std::strstr(url.c_str(), "https://") != NULL) {
+            if (std::strstr(url.c_str(), "release-notes") != NULL && std::strstr(url.c_str(), "https://") != NULL) {
                 use_web_link = true;
                 url_line = url;
                 break;
             }
         }
     }
-   
+
 
     if (use_web_link) {
-        m_brand->Hide();
+        //m_brand->Hide();
         m_text_up_info->Hide();
+        m_text_up_subInfo->Hide(); 
         m_simplebook_release_note->SetSelection(1);
         m_vebview_release_note->LoadURL(from_u8(url_line));
+        m_link_open_in_browser->SetURL(url_line);
     }
     else {
+        m_bitmap_open_in_browser->Hide();
+        m_link_open_in_browser->Hide();
         //m_simplebook_release_note->SetMaxSize(wxSize(FromDIP(560), FromDIP(430)));
         auto current_version = _L("Creality Print ") + " V" + std::string(CREALITYPRINT_VERSION) + " " + get_vertion_type();
 
         m_simplebook_release_note->SetSelection(0);
         m_text_up_info->SetLabel(wxString::Format(_L("New version found: %s, it's recommended to update"), version));
-        m_text_up_subInfo->SetLabel(wxString::Format(_L("Current version: %s"), current_version));
+        if(m_text_up_subInfo)
+            m_text_up_subInfo->SetLabel(wxString::Format(_L("Current version: %s"), current_version));
         wxBoxSizer* sizer_text_release_note = new wxBoxSizer(wxVERTICAL);
         auto        m_staticText_release_note = new ::Label(m_scrollwindows_release_note, release_note);
 
@@ -616,7 +636,7 @@ void UpdateVersionDialog::update_version_info(wxString release_note, wxString ve
         m_staticText_release_note->SetMaxSize(wxSize(size.GetWidth() - FromDIP(70), -1));
         m_staticText_release_note->Wrap(size.GetWidth() - FromDIP(70));
 
-        sizer_text_release_note->Add(m_staticText_release_note, 0, wxALL, 5); 
+        sizer_text_release_note->Add(m_staticText_release_note, 0, wxALL, 5);
         m_scrollwindows_release_note->SetSizer(sizer_text_release_note);
         m_scrollwindows_release_note->Layout();
         m_scrollwindows_release_note->Fit();

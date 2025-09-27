@@ -173,7 +173,12 @@ std::string ModelDownloader::filterInvalidFileNameChars(const std::string& input
 
     return result;
 }
-
+bool endsWith(const std::string& str, const std::string& suffix) {
+    if (str.length() < suffix.length()) {
+        return false;
+    }
+    return str.substr(str.length() - suffix.length()) == suffix;
+}
 void ModelDownloader::start_download_3mf_group(const std::string& full_url,
                                                const std::string& modelId,
                                                const std::string& fileId,
@@ -187,7 +192,11 @@ void ModelDownloader::start_download_3mf_group(const std::string& full_url,
      }*/
     auto safe_name   = filterInvalidFileNameChars(name);
     auto cache_path  = target_path;
-    auto file_path   = cache_path.append(safe_name + fileFormat).string();
+    if(!endsWith(safe_name,fileFormat))
+    {
+        safe_name = safe_name + fileFormat;
+    }
+    auto file_path   = cache_path.append(safe_name).string();
     auto progress_cb = [&, modelId, fileId, file_path = std::move(file_path)](int progress) {
         std::lock_guard<std::mutex> lock_guard(cache_json_mutex_);
         if (cache_json_.is_object() && cache_json_.contains("3mfs")) {
@@ -277,7 +286,7 @@ void ModelDownloader::start_download_3mf_group(const std::string& full_url,
     if(bNeedDownload)
     {
         download_tasks_.emplace_back(
-            std::make_unique<DownloadTask>(modelId, full_url, safe_name + fileFormat, target_path, progress_cb, complete_cb));
+            std::make_unique<DownloadTask>(modelId, full_url, safe_name, target_path, progress_cb, complete_cb));
         download_tasks_.back()->start();
     }else{
         wxGetApp().request_model_download(wxString::FromUTF8(downloaded_path.string()));

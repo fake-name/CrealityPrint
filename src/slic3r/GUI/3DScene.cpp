@@ -24,6 +24,7 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/ModelVolume.hpp"
 #include "libslic3r/ModelInstance.hpp"
+#include "libslic3r/QuadricEdgeCollapse.hpp"
 #include "slic3r/GUI/PartPlate.hpp"
 
 #include <stdio.h>
@@ -196,6 +197,46 @@ std::array<ColorRGBA, 5> GLVolume::MODEL_COLOR = { {
     { 1.0f, 1.0f, 0.0f, 1.f }
 } };
 
+float               GLVolume::LOD_HIGH_ZOOM          = 3.5f;
+float               GLVolume::LOD_MIDDLE_ZOOM        = 2.8f;
+float               GLVolume::LOD_SMALL_ZOOM         = 1.4f;
+float               GLVolume::LAST_CAMERA_ZOOM_VALUE = 0.0f;
+const float         ZOOM_THRESHOLD                   = 0.3f;
+const unsigned char LOD_UPDATE_FREQUENCY             = 20;
+const Vec2i32         LOD_SCREEN_MIN                   = Vec2i32(60, 50);
+const Vec2i32         LOD_SCREEN_MAX                   = Vec2i32(80, 70);
+
+Vec2f calc_pt_in_screen(const Vec3d& pt, const Matrix4d& view_proj_mat, int window_width, int window_height)
+{
+    auto  tran = view_proj_mat;
+    Vec4d temp_center(pt.x(), pt.y(), pt.z(), 1.0);
+    Vec4d temp_ndc          = tran * temp_center;
+    Vec3d screen_box_center = Vec3d(temp_ndc.x(), temp_ndc.y(), temp_ndc.z()) / temp_ndc.w();
+
+    float x = 0.5f * (1 + screen_box_center(0)) * window_width;
+    float y = 0.5f * (1 - screen_box_center(1)) * window_height;
+    return Vec2f(x, y);
+}
+
+LOD_LEVEL calc_volume_box_in_screen_bigger_than_threshold(const BoundingBoxf3& v_box_in_world,
+                                                          const Matrix4d&      view_proj_mat,
+                                                          int                  window_width,
+                                                          int                  window_height)
+{
+    auto s_min  = calc_pt_in_screen(v_box_in_world.min, view_proj_mat, window_width, window_height);
+    auto s_max  = calc_pt_in_screen(v_box_in_world.max, view_proj_mat, window_width, window_height);
+    auto size_x = abs(s_max.x() - s_min.x());
+    auto size_y = abs(s_max.y() - s_min.y());
+    if (size_x >= LOD_SCREEN_MAX.x() || size_y >= LOD_SCREEN_MAX.y()) {
+        return LOD_LEVEL::HIGH;
+    }
+    if (size_x <= LOD_SCREEN_MIN.x() && size_y <= LOD_SCREEN_MIN.y()) {
+        return LOD_LEVEL::SMALL;
+    } else {
+        return LOD_LEVEL::MIDDLE;
+    }
+}
+
 void GLVolume::update_render_colors()
 {
     GLVolume::DISABLED_COLOR    = GUI::ImGuiWrapper::from_ImVec4(RenderColor::colors[RenderCol_Model_Disable]);
@@ -333,6 +374,95 @@ ColorRGBA color_from_model_volume(const ModelVolume& model_volume)
         return GLVolume::SUPPORT_ENFORCER_COL;
     return color;
 }
+
+
+bool GLVolume::simplify_mesh(const TriangleMesh& mesh, std::shared_ptr<GUI::GLModel> model, LOD_LEVEL lod) const
+{
+    return simplify_mesh(mesh.its, model, lod);
+}
+#define SUPER_LARGE_FACES 500000
+#define LARGE_FACES 100000
+bool GLVolume::simplify_mesh(const indexed_triangle_set& _its, std::shared_ptr<GUI::GLModel> model, LOD_LEVEL lod) const
+{
+    if (_its.indices.size() == 0 || _its.vertices.size() == 0) {
+        return false;
+    }
+    auto its     = std::make_unique<indexed_triangle_set>(_its);
+    auto m_state = std::make_unique<State>();
+    if (lod == LOD_LEVEL::MIDDLE) {
+        m_state->config.max_error = 0.5f;
+        if (_its.indices.size() > SUPER_LARGE_FACES) {
+            m_state->config.max_error = 0.4f;
+        } else if (_its.indices.size() > LARGE_FACES) {
+            m_state->config.max_error = 0.3f;
+        }
+    }
+    if (lod == LOD_LEVEL::SMALL) {
+        m_state->config.max_error = 0.1f;
+        if (_its.indices.size() > SUPER_LARGE_FACES) {
+            m_state->config.max_error = 0.08f;
+        } else if (_its.indices.size() > LARGE_FACES) {
+            m_state->config.max_error = 0.05f;
+        }
+    }
+
+    // std::mutex  m_state_mutex;
+    std::thread m_worker = std::thread(
+        [this, model](std::unique_ptr<indexed_triangle_set> its, std::unique_ptr<State> state) {
+            // Checks that the UI thread did not request cancellation, throws if so.
+            std::function<void(void)> throw_on_cancel = []() {};
+            std::function<void(int)>  statusfn        = [&state](int percent) { state->progress = percent; };
+            // Initialize.
+            uint32_t triangle_count = 0;
+            float    max_error      = std::numeric_limits<float>::max();
+            {
+                if (state->config.use_count)
+                    triangle_count = state->config.wanted_count;
+                if (!state->config.use_count)
+                    max_error = state->config.max_error;
+                state->progress = 0;
+                state->result.reset();
+                state->status = State::Status::running;
+            }
+            int          init_face_count = its->indices.size();
+            TriangleMesh origin_mesh(*its);
+            try { // Start the actual calculation.
+                its_quadric_edge_collapse(*its, triangle_count, &max_error, throw_on_cancel, statusfn);
+            } catch (std::exception&) {
+                state->status = State::idle;
+            }
+            if (state->status == State::Status::running) {
+                // We were not cancelled, the result is valid.
+                state->status = State::Status::idle;
+                state->result = std::move(its);
+            }
+            if (state->result) {
+                int end_face_count = (*state->result).indices.size();
+                if (init_face_count < 200 || (init_face_count < 1000 && end_face_count < init_face_count * 0.5)) {
+                    return;
+                }
+                TriangleMesh mesh(*state->result);
+                float        eps        = 1.0f;
+                Vec3f        origin_min = origin_mesh.stats().min - Vec3f(eps, eps, eps);
+                Vec3f        origin_max = origin_mesh.stats().max + Vec3f(eps, eps, eps);
+                if (origin_min.x() < mesh.stats().min.x() && origin_min.y() < mesh.stats().min.y() &&
+                    origin_min.z() < mesh.stats().min.z() && origin_max.x() > mesh.stats().max.x() &&
+                    origin_max.y() > mesh.stats().max.y() && origin_max.z() > mesh.stats().max.z()) {
+                    if (model && model.use_count() >= 2) {
+                        model->init_from(mesh);
+                    }
+                } else {
+                    state->status = State::cancelling;
+                }
+            }
+        },
+        std::move(its), std::move(m_state));
+    if (m_worker.joinable()) {
+        m_worker.detach();
+    }
+    return true;
+}
+
 
 Transform3d GLVolume::world_matrix() const
 {
@@ -493,6 +623,13 @@ void GLVolume::simple_render(GLShaderProgram* shader, ModelObjectPtrs& model_obj
         glFrontFace(GL_CW);
     glsafe(::glCullFace(GL_BACK));
 
+	auto                      camera        = GUI::wxGetApp().plater()->get_camera();
+    auto                      zoom          = camera.get_zoom();
+    Transform3d               vier_mat      = camera.get_view_matrix();
+    Matrix4d                  vier_proj_mat = camera.get_projection_matrix().matrix() * vier_mat.matrix();
+    const std::array<int, 4>& viewport      = camera.get_viewport();
+	
+
     bool color_volume = false;
     ModelObject* model_object = nullptr;
     ModelVolume* model_volume = nullptr;
@@ -571,9 +708,40 @@ void GLVolume::simple_render(GLShaderProgram* shader, ModelObjectPtrs& model_obj
                 m.render(this->tverts_range);
         }
     } else {
+
+		m_lod_update_index++;
+        if (abs(zoom - LAST_CAMERA_ZOOM_VALUE) > ZOOM_THRESHOLD || m_lod_update_index >= LOD_UPDATE_FREQUENCY) {
+            m_lod_update_index     = 0;
+            LAST_CAMERA_ZOOM_VALUE = zoom;
+            m_cur_lod_level        = calc_volume_box_in_screen_bigger_than_threshold(transformed_bounding_box(), vier_proj_mat, viewport[2],
+                                                                                     viewport[3]);
+        }
+
         if (tverts_range == std::make_pair<size_t, size_t>(0, -1))
         {
-            model.render();
+            if (m_cur_lod_level == LOD_LEVEL::SMALL && model_small && model_small->is_initialized()) {
+#if 0
+				if (!picking && GUI::wxGetApp().app_config->get_bool("lod_debug")) {
+                    model_small->set_color(model.get_color() * 0.5f);
+				} else
+#endif
+				{
+                    model_small->set_color(model.get_color());
+				}
+				model_small->render();
+            } else if (m_cur_lod_level == LOD_LEVEL::MIDDLE && model_middle && model_middle->is_initialized()) {
+#if 0
+				if (!picking && GUI::wxGetApp().app_config->get_bool("lod_debug")) {
+                    model_middle->set_color(model.get_color() * 0.8f);
+                } else 
+#endif // 0
+				{
+					model_middle->set_color(model.get_color());
+                }
+                model_middle->render();
+            } else {
+                model.render();
+            }
             
             if (GUI::wxGetApp().plater()->is_show_wireframe() && GUI::wxGetApp().plater()->get_current_canvas3D()->get_canvas_type() == GUI::GLCanvas3D::ECanvasType::CanvasView3D)
             {
@@ -762,12 +930,13 @@ std::vector<int> GLVolumeCollection::load_object(
     int                      obj_idx,
     const std::vector<int>  &instance_idxs,
     const std::string       &color_by,
-    bool 					 opengl_initialized)
+    bool 					 opengl_initialized,
+    bool                    lod_enabled)
 {
     std::vector<int> volumes_idx;
     for (int volume_idx = 0; volume_idx < int(model_object->volumes.size()); ++volume_idx)
         for (int instance_idx : instance_idxs)
-            volumes_idx.emplace_back(this->GLVolumeCollection::load_object_volume(model_object, obj_idx, volume_idx, instance_idx, color_by, opengl_initialized));
+            volumes_idx.emplace_back(this->GLVolumeCollection::load_object_volume(model_object, obj_idx, volume_idx, instance_idx, color_by, opengl_initialized, false, lod_enabled));
     return volumes_idx;
 }
 
@@ -779,11 +948,13 @@ int GLVolumeCollection::load_object_volume(
     const std::string   &color_by,
     bool 				 opengl_initialized,
     bool                 in_assemble_view,
-    bool                 use_loaded_id)
+    bool                 use_loaded_id,
+    bool                 lod_enabled)
 {
     const ModelVolume   *model_volume = model_object->volumes[volume_idx];
     const int            extruder_id  = model_volume->extruder_id();
     const ModelInstance *instance 	  = model_object->instances[instance_idx];
+    const TriangleMesh&  mesh         = model_volume->mesh();
     auto color = GLVolume::MODEL_COLOR[((color_by == "volume") ? volume_idx : obj_idx) % 4];
     color.a(model_volume->is_model_part() ? 0.7f : 0.4f);
 
@@ -802,6 +973,10 @@ int GLVolumeCollection::load_object_volume(
     if (exist_volume!=nullptr) {//Reuse vertex data when the mesh is the same.
         new_volume = new GLVolume(color[0], color[1], color[2], color[3], false);
         new_volume->model.set_render_data(exist_volume->model.get_render_data());
+		
+		new_volume->model_small = exist_volume->model_small;
+        new_volume->model_middle = exist_volume->model_middle;
+
         g_mesh_volumes[mesh_ptr].emplace(new_volume);
     }
     else {
@@ -821,8 +996,34 @@ int GLVolumeCollection::load_object_volume(
 #if ENABLE_SMOOTH_NORMALS
     v.model.init_from(mesh, true);
 #else
-    if (!v.model.is_initialized())
+	if (!v.model.is_initialized()) {
+		//colorful volume can't enable LOD
+		if (lod_enabled && model_volume->mmu_segmentation_facets.empty()) {
+
+			// Enable LOD based on current conditions
+            size_t avail = Slic3r::available_physical_memory();
+            size_t total = Slic3r::total_physical_memory();
+
+            // size_t mem_size = mesh.memsize();
+            size_t face_size = mesh.its.indices.size();
+            // ¹ÀËãÄÚ´æÕ¼ÓÃ
+            float estimate_mem = 0.6909f * face_size / 1000 * 1024 * 1024;
+
+            bool mem_enouge = (avail > 0 && total > 0 && (avail - estimate_mem) / total > 0.2f);
+            if (mem_enouge) {
+                if (!v.model_middle) {
+                    v.model_middle = std::make_shared<GUI::GLModel>();
+                }
+                v.simplify_mesh(mesh, v.model_middle, LOD_LEVEL::MIDDLE);
+
+                if (!v.model_small) {
+                    v.model_small = std::make_shared<GUI::GLModel>();
+                }
+                v.simplify_mesh(mesh, v.model_small, LOD_LEVEL::SMALL);
+            }
+		}
         v.model.init_from(*mesh_ptr);
+	}
 
     if (exist_volume != nullptr) {
         v.mesh_raycaster = exist_volume->mesh_raycaster;

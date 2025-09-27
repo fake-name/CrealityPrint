@@ -724,8 +724,14 @@
                                 {
                                     "key":"infill_direction",
                                     "tooltip":"",
-                                    "tooltip_img":"",
+                                    "tooltip_img":"infill_direction",
                                     "url":"update-released/Strength/advanced"
+                                },
+                                {
+                                    "key":"solid_infill_direction",
+                                    "tooltip":"",
+                                    "tooltip_img":"solid_infill_direction",
+                                    "url":""
                                 },
                                 {
                                     "key":"bridge_angle",

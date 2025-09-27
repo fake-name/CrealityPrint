@@ -513,6 +513,10 @@ void AppConfig::set_defaults()
     if (get("internal_developer_mode").empty())
         set_bool("internal_developer_mode", false);
 
+    // software crash flag default
+    if (get("software_crash").empty())
+        set_bool("software_crash", false);
+
     // BBS
     if (get("preset_folder").empty())
         set("preset_folder", "");
@@ -698,6 +702,9 @@ void AppConfig::set_defaults()
     }*/
 
     // Remove legacy window positions/sizes
+	if (get("enable_lod").empty())
+        set_bool("enable_lod", true);
+    
     erase("app", "main_frame_maximized");
     erase("app", "main_frame_pos");
     erase("app", "main_frame_size");

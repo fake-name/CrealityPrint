@@ -576,7 +576,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     
     bool have_skirt = config->opt_int("skirt_loops") > 0;
     toggle_field("skirt_height", have_skirt && config->opt_enum<DraftShield>("draft_shield") != dsEnabled);
-    for (auto el : {"skirt_type", "skirt_distance", "draft_shield"})
+    for (auto el : { "skirt_distance", "draft_shield"})
         toggle_field(el, have_skirt);
     
     bool have_brim = (config->opt_enum<BrimType>("brim_type") != btNoBrim);
@@ -826,8 +826,8 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("scarf_angle_threshold", has_seam_slope && config->opt_bool("seam_slope_conditional"));
     toggle_line("scarf_overhang_threshold", has_seam_slope && config->opt_bool("seam_slope_conditional"));
 
-    toggle_line("acceleration_limit_mess", config->opt_bool("acceleration_limit_mess_enable"));
-    toggle_line("speed_limit_to_height", config->opt_bool("speed_limit_to_height_enable"));
+    toggle_line("acceleration_limit_mess", false/*config->opt_bool("acceleration_limit_mess_enable")*/);
+    toggle_line("speed_limit_to_height", false/*config->opt_bool("speed_limit_to_height_enable")*/);
 	bool use_beam_interlocking = config->opt_bool("interlocking_beam");
     toggle_line("mmu_segmented_region_interlocking_depth", !use_beam_interlocking);
     toggle_line("interlocking_beam_width", use_beam_interlocking);

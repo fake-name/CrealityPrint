@@ -206,6 +206,7 @@ private:
     };
 
     bool m_gl_initialized{ false };
+    bool m_valid_version{ false };
     wxGLContext* m_context{ nullptr };
     GLShadersManager m_shaders_manager;
     uint32_t m_viewport_width{ 0 };

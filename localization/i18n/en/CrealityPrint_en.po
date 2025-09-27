@@ -1995,6 +1995,9 @@ msgstr "default"
 msgid "Height to rod"
 msgstr "Height to rod"
 
+msgid "multicolor method"
+msgstr "Calculation of flush amount slice"
+
 msgid ""
 "Distance of the nozzle tip to the lower rod. Used for collision avoidance in "
 "by-object printing."
@@ -13303,6 +13306,12 @@ msgstr "%s info"
 msgid "Adjust Model"
 msgstr "Adjust Model"
 
+msgid "Weight range"
+msgstr "Weight range"
+
+msgid "Print speed"
+msgstr "Print speed"
+
 msgid "Continue Export (Not Recommended)"
 msgstr "Continue Export (Not Recommended)"
 
@@ -15921,6 +15930,9 @@ msgstr ""
 "Switch to rectilinear pattern?\n"
 "Yes - switch to rectilinear pattern\n"
 "No - reset density to default non 100% value"
+
+msgid "support_manual_draw_hint"
+msgstr "Manual support mode is active. Click  Support Painting (L)  to start adding support structures."
 
 #, c-format, boost-format
 msgid ""
@@ -19512,3 +19524,12 @@ msgstr "Display Step Import Setting Dialog"
 
 msgid "Calculating, please wait..."
 msgstr "Calculating, please wait..."
+
+msgid "Out of memory. Please save the current project and exit the application."
+msgstr "Out of memory. Please save the current project and exit the application."
+
+msgid "Out of memory"
+msgstr "Out of memory"
+
+msgid "An error occurred: Failed to generate plate data."
+msgstr "An error occurred: Failed to generate plate data."

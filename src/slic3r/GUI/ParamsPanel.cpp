@@ -466,6 +466,14 @@ ParamsPanel::ParamsPanel( wxWindow* parent, wxWindowID id, const wxPoint& pos, c
         m_mode_region = new SwitchButton(m_top_panel);
         m_mode_region->SetMaxSize({em_unit(this) * 12, -1});
         m_mode_region->SetLabels(_L("Global"), _L("Objects"));
+
+        Bind(wxEVT_IDLE, [this](wxIdleEvent& event) {
+            if(m_mode_region->GetScreenRect().Contains(wxGetMousePosition())) {
+                wxGetApp().imgui()->set_requires_extra_frame();
+            }
+            event.Skip();
+        });
+
         //m_mode_region->GetSize(&width, &height);
         m_tips_arrow = new ScalableButton(m_top_panel, wxID_ANY, "tips_arrow");
         m_tips_arrow->Hide();
@@ -920,7 +928,7 @@ void ParamsPanel::create_layout_printerAndFilament()
             cur_tab->save_preset(std::string(), false, false, false, std::string(), true);
             //OnPanelShowInit();
             cur_tab->set_just_edit(false);
-
+            cur_tab->OnActivate();
             OnParentDialogOpen();
             Layout();
             });
@@ -954,6 +962,7 @@ void ParamsPanel::create_layout_printerAndFilament()
 
             OnParentDialogOpen();
             Layout();
+            cur_tab->OnActivate();
             });
         Slic3r::GUI::wxGetApp().UpdateDarkUI(m_btn_saveAs);
 

@@ -143,6 +143,14 @@ bool GLGizmoDrill::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_posi
 
     double depth = m_depth;
     {
+        int idx = m_parent.get_selection().get_instance_idx();
+        if ((idx < 0) || (idx >= mo->instances.size())) {
+            BOOST_LOG_TRIVIAL(error) << "show_object_info: inst_idx (" << idx << ") >= instances.size() ("
+                                        << mo->instances.size() << ")";
+            boost::log::core::get()->flush();
+            return false;
+        }
+
     const ModelInstance*     mi = mo->instances[m_parent.get_selection().get_instance_idx()];
     std::vector<Transform3d> trafo_matrices;
     for (const ModelVolume* mv : mo->volumes) {
@@ -260,12 +268,34 @@ bool GLGizmoDrill::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_posi
     //                                Eigen::Quaternion<double>::FromTwoVectors(Vec3d::UnitZ(), -normal) *
     //                                   Geometry::scale_transform(
     //                                       {(double) m_radius, (double) m_radius, (normal_on_model).norm() * (depth + depth_scale_factor)});
+    //fix:[11399]
+    Eigen::Matrix3d A = selected_volumes_matrix.linear();
+
+    Eigen::Vector3d n         = local_normal;
+    Eigen::Vector3d arbitrary = (std::abs(n.x()) < 0.9) ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY();
+    Eigen::Vector3d u         = (arbitrary - arbitrary.dot(n) * n).normalized();
+    Eigen::Vector3d v         = n.cross(u).normalized();
+
+    const double su  = (A * u).norm();
+    const double sv  = (A * v).norm();
+    const double sn  = (A * n).norm();
+    const double eps = 1e-12;
+
+    const double Rw = m_radius;
+
+    const double Dw = m_one_layer_only ? depth : m_depth;
+
+    const double guard_w = static_cast<double>(depth_scale_factor);
+
+    const double rx_local    = Rw / std::max(su, eps);
+    const double ry_local    = Rw / std::max(sv, eps);
+    const double guard_local = guard_w / std::max(sn, eps);
+    const double Dz_local    = (Dw + guard_w) / std::max(sn, eps);
 
     const Transform3d feature_matrix_local = 
-    Geometry::translation_transform(local_pos + local_normal * depth_scale_factor) *
-    Eigen::Quaternion<double>::FromTwoVectors(Vec3d::UnitZ(), -local_normal) *
-    Geometry::scale_transform({(double)m_radius, (double)m_radius, 
-                              local_normal.norm() * (depth + depth_scale_factor)});
+    Geometry::translation_transform(local_pos + n * guard_local) *
+    Eigen::Quaternion<double>::FromTwoVectors(Vec3d::UnitZ(), -n) *
+    Geometry::scale_transform({rx_local, ry_local, Dz_local});
 
     auto m = indexed_triangle_set{};
     TriangleMesh        temp_src_mesh{selected_volumes->mesh().its};
@@ -277,16 +307,11 @@ bool GLGizmoDrill::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_posi
     //temp_tool_mesh.transform(feature_matrix);
     temp_tool_mesh.transform(feature_matrix_local);
 
-    //如果不把网格清理干净，下面的cgal布尔运算会崩溃
-    //修复bug 11108
     {
-        //合并重复的顶点
         its_merge_vertices(temp_src_mesh.its);
 
-        //删除退化的面
         its_remove_degenerate_faces(temp_src_mesh.its);
 
-        //删除没有被某个面引用的顶点
         its_compactify_vertices(temp_src_mesh.its);
     }
 

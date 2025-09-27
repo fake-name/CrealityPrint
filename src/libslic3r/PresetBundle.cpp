@@ -39,7 +39,7 @@ static std::vector<std::string> s_project_options {
     "filament_colour",
     "wipe_tower_x",
     "wipe_tower_y",
-    "wipe_tower_rotation_angle",
+    //"wipe_tower_rotation_angle",
     "curr_bed_type",
     "flush_multiplier",
 };
@@ -330,7 +330,12 @@ Semver PresetBundle::get_vendor_profile_version(std::string vendor_name)
 
     return result_ver;
 }
-
+std::string toUpperCase(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(),
+        [](unsigned char c) { return std::toupper(c); });
+    return result;
+}
 VendorType PresetBundle::get_current_vendor_type()
 {
     auto        t      = VendorType::VendorType_Unknown;
@@ -350,6 +355,10 @@ VendorType PresetBundle::get_current_vendor_type()
             vendor_name = "Creality";
         if(boost::starts_with(config->opt_string("printer_model"), "Bambu"))
             vendor_name = "BBL";
+        if(boost::starts_with(config->opt_string("printer_model"), "SPARKX"))
+            vendor_name = "SPARKX";
+        if(boost::starts_with(config->opt_string("printer_model"), "sparkx"))
+            vendor_name = "SPARKX";
     }
 
     if (!vendor_name.empty())
@@ -357,6 +366,8 @@ VendorType PresetBundle::get_current_vendor_type()
         if(vendor_name.compare("BBL") == 0)
             t = VendorType::Marlin_BBL;
         else if (vendor_name.compare("Creality") == 0)
+            t = VendorType::Creality;
+        else if (toUpperCase(vendor_name).compare("SPARKX") == 0)
             t = VendorType::Creality;
     }
 #ifdef CUSTOMIZED
@@ -651,7 +662,10 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(std::string user, For
     } catch (const std::runtime_error &err) {
         errors_cummulative += err.what();
     }
-    if (!errors_cummulative.empty()) throw Slic3r::RuntimeError(errors_cummulative);
+    if (!errors_cummulative.empty()) 
+    {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << errors_cummulative;
+    }
     this->update_multi_material_filament_presets();
     this->update_compatible(PresetSelectCompatibleType::Never);
 
@@ -733,7 +747,10 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(AppConfig &          
     set_calibrate_printer("");
 
     if (! errors_cummulative.empty())
-        throw Slic3r::RuntimeError(errors_cummulative);
+    {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << errors_cummulative;
+    }
+        //throw Slic3r::RuntimeError(errors_cummulative);
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" finished, process_added %1%, filament_added %2%, machine_added %3%")%process_added %filament_added %machine_added;
     return substitutions;
@@ -4251,6 +4268,11 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     std::vector<double> old_matrix = this->project_config.option<ConfigOptionFloats>("flush_volumes_matrix")->values;
     size_t old_number_of_filaments = size_t(sqrt(old_matrix.size())+EPSILON);
     size_t              nozzle_nums             = get_printer_extruder_count();
+    BOOST_LOG_TRIVIAL(warning) << "[PresetBundle] update_multi_material_filament_presets: num_filaments=" << num_filaments
+                               << ", old_matrix.size=" << old_matrix.size()
+                               << ", old_number_of_filaments=" << old_number_of_filaments
+                               << ", nozzle_nums=" << nozzle_nums
+                               << ", to_delete_filament_id=" << to_delete_filament_id;
     if (num_filaments != old_number_of_filaments) {
         // First verify if purging volumes presets for each extruder matches number of extruders
         std::vector<double>& filaments = this->project_config.option<ConfigOptionFloats>("flush_volumes_vector")->values;

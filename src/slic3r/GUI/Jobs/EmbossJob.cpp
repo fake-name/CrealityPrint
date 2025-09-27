@@ -1193,11 +1193,30 @@ void create_volume(TriangleMesh                    &&mesh,
     
     // update model and redraw scene
     //canvas->reload_scene(true);
-    //���ݸ�ģ�͵ĺĲ���ɫ��Ӧ���룬д�븡����
-    int modelExtruder = obj->config.extruder();
+    
+    // 添加空指针检查和配置项访问保护
+    if (!obj) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " ModelObject pointer is null, cannot access extruder config";
+        boost::log::core::get()->flush();
+        return;
+    }
+    
+    int modelExtruder = 1; // 默认值
+    try {
+        if (obj->config.has("extruder")) {
+            modelExtruder = obj->config.extruder();
+        } else {
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " ModelObject config missing 'extruder' key, using default value 1";
+        }
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " Exception accessing extruder config: " << e.what() << ", using default value 1";
+    }
+    boost::log::core::get()->flush();
+
 
     if(sel.IsEmpty()) {
         BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " wxDataViewItemArray sel is empty, could possibly cause exception! ";
+        boost::log::core::get()->flush();
         return;
     }
     

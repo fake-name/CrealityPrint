@@ -656,7 +656,7 @@ void NotificationManager::PopNotification::render_close_button(ImGuiWrapper& img
 	}
 	ImVec2 button_pic_size = ImGui::CalcTextSize(into_u8(button_text).c_str());
 	ImVec2 button_size(button_pic_size.x * 1.25f, button_pic_size.y * 1.25f);
-	ImGui::SetCursorPosX(win_size.x - m_line_height * 2.0f);
+	ImGui::SetCursorPosX(win_size.x - m_line_height * 2.0f - 20);
 	//ImGui::SetCursorPosY(win_size.y / 2 - button_size.y);
     if (m_minimize_b_visible)
 		ImGui::SetCursorPosY(0);
@@ -1937,6 +1937,34 @@ void NotificationManager::set_simplify_suggestion_multiline(const ObjectID oid, 
         }
 }
 
+
+void NotificationManager::push_support_manual_hint(const std::string& text, int duration_sec)
+{
+    close_notification_of_type(NotificationType::SupportManualHint);
+    NotificationData data{
+        NotificationType::SupportManualHint,
+        NotificationLevel::WarningNotificationLevel,
+        duration_sec,                                     
+        text,                               
+        into_u8("Ç°Íù»æÖÆÖ§³Å(L)"),
+		[](wxEvtHandler*) {
+        if (auto* canvas = wxGetApp().plater()->get_current_canvas3D()) {
+            auto& gm = canvas->get_gizmos_manager();
+            gm.open_gizmo(Slic3r::GUI::GLGizmosManager::EType::FdmSupports);
+            canvas->set_as_dirty();
+            canvas->request_extra_frame();
+        }
+        return true;
+		}
+    };
+    push_notification_data(data, 0);
+}
+
+void NotificationManager::close_support_manual_hint() 
+{ 
+	close_notification_of_type(NotificationType::SupportManualHint); 
+}
+
 void NotificationManager::push_exporting_finished_notification(const std::string& path, const std::string& dir_path, bool on_removable)
 {
 	close_notification_of_type(NotificationType::ExportFinished);
@@ -2468,13 +2496,16 @@ void NotificationManager::render_notifications(GLCanvas3D &canvas, float overlay
 	float bottom_up_last_y = 5 * m_scale;
 	bool overflow = m_move_from_overlay && !m_in_preview;
 	
-
+	bool b_Arrange = false;
 	for (const auto& notification : m_pop_notifications) {
         auto level = notification->get_data().level;
         auto state = notification->get_state();
         auto type = notification->get_type();
         if (type == NotificationType::BBLObjectInfo && state != PopNotification::EState::Hidden && state != PopNotification::EState::Finished) {
             notification->render(canvas, bottom_up_last_y, overflow, overlay_width * m_scale);
+        }
+        if (type == NotificationType::ArrangeOngoing) {
+            b_Arrange = true;
         }
     }
 
@@ -2516,7 +2547,13 @@ void NotificationManager::render_notifications(GLCanvas3D &canvas, float overlay
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2());
 
 		//ImGui::BeginChild("##scroll_child", ImVec2(0, 0), true);
-        ImGui::BeginChild("##scroll_child", ImVec2(0, 0), false); // | ImGuiWindowFlags_NoBackground
+        if (b_Arrange) {
+            ImGui::BeginChild("##scroll_child", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		}
+		else
+		{
+            ImGui::BeginChild("##scroll_child", ImVec2(0, 0), false); // | ImGuiWindowFlags_NoBackground
+		}
 		ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(4);
 
@@ -3122,6 +3159,7 @@ void NotificationManager::PopNotification::render(GLCanvas3D& canvas, float& ini
 
 	//ImGui::SetNextWindowSize(win_size);
 	//ImGui::SetNextWindowPos(win_pos, ImGuiCond_Always, { 0,0 });
+
 	initial_y += win_size.y + 10;
 
 	if (m_id == 0)
@@ -3150,5 +3188,14 @@ void NotificationManager::PopNotification::render(GLCanvas3D& canvas, float& ini
 	ImGui::EndChild();
 
 }
+void NotificationManager::cleanup_arrange_notifications()
+{
+    m_pop_notifications.erase(std::remove_if(m_pop_notifications.begin(), m_pop_notifications.end(),
+                                             [](const std::unique_ptr<PopNotification>& notif) {
+                                                 return notif->get_type() == NotificationType::ArrangeOngoing;
+                                             }),
+                              m_pop_notifications.end());
+}
+
 }//namespace GUI
 }//namespace Slic3r

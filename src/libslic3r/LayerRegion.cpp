@@ -117,7 +117,7 @@ void LayerRegion::make_perimeters(const SurfaceCollection &slices, SurfaceCollec
         g.process_classic();
 }
 
-#if 1
+#if 0
 
 // Extract surfaces of given type from surfaces, extract fill (layer) thickness of one of the surfaces.
 static ExPolygons fill_surfaces_extract_expolygons(Surfaces &surfaces, std::initializer_list<SurfaceType> surface_types, double &thickness)
@@ -590,11 +590,25 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
 
 void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Polygons *lower_layer_covered)
 {
+    coord_t max_margin = 0;
+    if ((this->region().config().wall_loops > 0)) {
+        max_margin = (this->flow(frExternalPerimeter).scaled_width() + this->flow(frPerimeter).scaled_spacing()) / 2 +
+                     this->flow(frPerimeter).scaled_spacing() * (this->region().config().wall_loops.value - 1);
+    }
     const bool      has_infill = this->region().config().sparse_infill_density.value > 0.;
     //BBS
     auto nozzle_diameter = this->region().nozzle_dmr_avg(this->layer()->object()->print()->config());
-    const float margin = float(scale_(EXTERNAL_INFILL_MARGIN));
-    const float bridge_margin = std::min(float(scale_(BRIDGE_INFILL_MARGIN)), float(scale_(nozzle_diameter * BRIDGE_INFILL_MARGIN / 0.4)));
+    coord_t margin = float(scale_(this->region().config().external_infill_margin.get_abs_value(unscaled(max_margin))));
+    coord_t bridge_margin = std::min(float(scale_(BRIDGE_INFILL_MARGIN)), float(scale_(nozzle_diameter * BRIDGE_INFILL_MARGIN / 0.4)));
+    // if no infill, reduce the margin for everything to only the perimeter
+    if (!has_infill) {
+        margin         = std::min(margin, max_margin);
+        bridge_margin = std::min(bridge_margin, max_margin);
+    }
+    coord_t infill_margin = margin;
+    if (margin < SCALED_EPSILON) {
+        margin = max_margin;
+    }
 
     // BBS
     const PrintObjectConfig& object_config = this->layer()->object()->config();
@@ -636,7 +650,7 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
                     surfaces_append(top, offset_ex(surface.expolygon, margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS), surface);
                 else
                     //BBS: Don't need to expand too much in this situation. Expand 3mm to eliminate hole and 1mm for contour
-                    surfaces_append(top, intersection_ex(offset(surface.expolygon.contour, margin / 3.0, EXTERNAL_SURFACES_OFFSET_PARAMETERS),
+                    surfaces_append(top, intersection_ex(offset(surface.expolygon.contour, margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS),
                                                          offset_ex(surface.expolygon, margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS)), surface);
             } else if (surface.surface_type == stBottom || (surface.surface_type == stBottomBridge && lower_layer == nullptr)) {
                 // Grown by 3mm.
@@ -649,7 +663,13 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
             	assert(surface.surface_type == stInternal || surface.surface_type == stInternalSolid);
             	if (! has_infill && lower_layer != nullptr)
             		polygons_append(voids, surface.expolygon);
-            	internal.emplace_back(std::move(surface));
+                if (surface.surface_type == stInternalSolid)
+                    surfaces_append(internal,
+                                    intersection_ex(offset(surface.expolygon.contour, infill_margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS),
+                                                    offset_ex(surface.expolygon, infill_margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS)),
+                                    surface);
+                else
+                    internal.emplace_back(std::move(surface));
             }
         }
         if (! has_infill && lower_layer != nullptr && ! voids.empty()) {
@@ -824,10 +844,10 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
 
     Surfaces new_surfaces;
     {
-        // Merge top and bottom in a single collection.
-        surfaces_append(top, std::move(bottom));
         // Intersect the grown surfaces with the actual fill boundaries.
         Polygons bottom_polygons = to_polygons(bottom);
+        // Merge top and bottom in a single collection.
+        surfaces_append(top, std::move(bottom));
         for (size_t i = 0; i < top.size(); ++ i) {
             Surface &s1 = top[i];
             if (s1.empty())
@@ -854,6 +874,9 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
     
     // Subtract the new top surfaces from the other non-top surfaces and re-add them.
     Polygons new_polygons = to_polygons(new_surfaces);
+    auto     it           = std::find_if(internal.begin(), internal.end(), [](const Surface& s) { return s.surface_type == stInternalSolid; });
+    if (it != internal.end() && it != internal.begin())
+        std::swap(*internal.begin(), *it);
     for (size_t i = 0; i < internal.size(); ++ i) {
         Surface &s1 = internal[i];
         if (s1.empty())
@@ -869,7 +892,7 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
         }
         ExPolygons new_expolys = diff_ex(polys, new_polygons);
         polygons_append(new_polygons, to_polygons(new_expolys));
-        surfaces_append(new_surfaces, std::move(new_expolys), s1);
+        surfaces_append(new_surfaces, intersection_ex(new_expolys, fill_boundaries), s1);
     }
     
     this->fill_surfaces.surfaces = std::move(new_surfaces);

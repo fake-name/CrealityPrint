@@ -24,6 +24,7 @@
 #include "libslic3r/CutUtils.hpp"
 #include "GLToolbarCollapse.h"
 #include "GLToolbarProcess.h"
+#include "CrProject.hpp"
 
 #define FILAMENT_SYSTEM_COLORS_NUM      16
 
@@ -111,7 +112,7 @@ wxDECLARE_EVENT(EVT_AUTO_SYNC_CURRENT_DEVICE_FILAMENT, wxCommandEvent);
 wxDECLARE_EVENT(EVT_ON_MAPPING_DEVICE_FILAMENT, wxCommandEvent);
 wxDECLARE_EVENT(EVT_ON_SHOW_BOX_COLOR_SELECTION, wxCommandEvent);
 wxDECLARE_EVENT(EVT_EXPORT_GCODE_FINISHED, wxCommandEvent);
-
+wxDECLARE_EVENT(EVT_SUPPORT_TYPE_CHANGED, wxCommandEvent);
 const wxString DEFAULT_PROJECT_NAME = "Untitled";
 
 class Sidebar : public wxPanel
@@ -390,6 +391,7 @@ public:
 
     const wxString& get_last_loaded_gcode() const { return m_last_loaded_gcode; }
     const fs::path& get_last_loaded_3mf() const { return m_last_loaded_3mf; }
+    AuxiliariesInfo& get_auxiliaries_info() { return m_auxiliaries_info;}
 
     void update(bool conside_update_flag = false, bool force_background_processing_update = false);
     //BBS
@@ -639,6 +641,11 @@ public:
     void split_object();
     void split_volume();
     void optimize_rotation();
+    void close_support_manual_hint();
+    void OnSupportManualHintUpdate(wxCommandEvent& e);
+    bool has_painted_support_on_current_plate();
+    void update_support_manual_hint_by_type(SupportType st_new);
+    bool selection_has_support_painted();
     // find all empty cells on the plate and won't overlap with exclusion areas
     static std::vector<Vec2f> get_empty_cells(const Vec2f step);
 
@@ -926,6 +933,10 @@ private:
 
     bool m_isLoadingGCode{false};
     fs::path m_last_loaded_3mf;
+
+    //Auxiliaries directories info from 3mf
+    AuxiliariesInfo m_auxiliaries_info;
+
     void     reset_last_loaded_3mf();
     void suppress_snapshots();
     void allow_snapshots();

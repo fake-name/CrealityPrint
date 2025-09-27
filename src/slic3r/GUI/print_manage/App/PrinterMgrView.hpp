@@ -28,7 +28,7 @@
 #include <wx/timer.h>
 #include "nlohmann/json_fwd.hpp"
 #include <slic3r/GUI/print_manage/AppUtils.hpp>
-
+#include "mqtt_client.h"
 
 
 namespace Slic3r {
@@ -74,6 +74,10 @@ namespace Slic3r {
             bool should_upload_device_info() const;
             void set_finish_upload_device_state(bool finish) { m_finish_upload_device_state = finish; }
             bool get_finish_upload_device_state() const { return m_finish_upload_device_state; }
+            void initMqtt();
+            void setMqttDeviceDN(std::string dn);
+            void destoryMqtt();
+            void processMqttMessage(std::string topic,std::string playload);
 
         private:
             void SendAPIKey();
@@ -96,6 +100,7 @@ namespace Slic3r {
             std::unordered_map<std::string,std::string> m_devicePool;
             boost::thread m_scanPoolThread;
             bool m_scanExit = false;
+            std::string m_curDeviceDN="";
             #ifdef __WXGTK__
             // When using GTK, there may be a problem of synthetic dirty area failure, so perform a low-frequency refresh
             wxTimer* m_freshTimer;
@@ -103,6 +108,7 @@ namespace Slic3r {
             DM::ThreadController _ctrl;
             std::chrono::steady_clock::time_point lastSendTime;
             std::mutex sendMutex;
+            MQTTClient *client=nullptr;
             void sendProgressWithRateLimit(std::string ip,float progress,double speed);
             // DECLARE_EVENT_TABLE()
         };

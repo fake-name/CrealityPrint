@@ -533,8 +533,12 @@ public:
     enum ERenderEvent { FillBedOptions, ObjectCloneOptions, Count };
 
     int GetHoverId();
+    void set_mouse_scheme(int scheme) ;
+    int mouse_scheme() const { return m_mouse_scheme; }
 
 private:
+    int            m_mouse_scheme = 0;
+    void           OnMouseSchemeChanged(wxCommandEvent& e);
     bool           m_is_dark = false;
     wxGLCanvas*    m_canvas;
     wxGLContext*   m_context;
@@ -1012,8 +1016,8 @@ public:
     std::vector<CustomGCode::Item>& get_custom_gcode_per_print_z() { return m_gcode_viewer.get_custom_gcode_per_print_z(); }
     size_t                          get_gcode_extruders_count() { return m_gcode_viewer.get_extruders_count(); }
 
-    std::vector<int> load_object(const ModelObject& model_object, int obj_idx, std::vector<int> instance_idxs);
-    std::vector<int> load_object(const Model& model, int obj_idx);
+    std::vector<int> load_object(const ModelObject& model_object, int obj_idx, std::vector<int> instance_idxs, bool lod_enabled);
+    std::vector<int> load_object(const Model& model, int obj_idx, bool lod_enabled);
 
     void mirror_selection(Axis axis);
 

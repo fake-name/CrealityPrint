@@ -1901,12 +1901,23 @@ void Selection::erase()
     if (!m_valid)
         return;
 
-    if (is_single_full_object())
-        wxGetApp().obj_list()->delete_from_model_and_list(ItemType::itObject, get_object_idx(), 0);
+    if (is_single_full_object()) {
+        int obj_idx = get_object_idx();
+        if (obj_idx >= 0 && obj_idx < (int)m_model->objects.size()) {
+            const ModelObject* obj = m_model->objects[obj_idx];
+            BOOST_LOG_TRIVIAL(warning) << "Selection::erase() - Single object deletion: name='" << obj->name << "', ID=" << obj->id().id << ", volumes=" << obj->volumes.size() << ", instances=" << obj->instances.size() << ", layer_config_ranges=" << obj->layer_config_ranges.size();
+        }
+        wxGetApp().obj_list()->delete_from_model_and_list(ItemType::itObject, obj_idx, 0);
+    }
     else if (is_multiple_full_object()) {
+        BOOST_LOG_TRIVIAL(warning) << "Selection::erase() - Multiple objects deletion: count=" << m_cache.content.size();
         std::vector<ItemForDelete> items;
         items.reserve(m_cache.content.size());
         for (ObjectIdxsToInstanceIdxsMap::iterator it = m_cache.content.begin(); it != m_cache.content.end(); ++it) {
+            if (it->first >= 0 && it->first < (int)m_model->objects.size()) {
+                const ModelObject* obj = m_model->objects[it->first];
+                BOOST_LOG_TRIVIAL(warning) << "Selection::erase() - Deleting object: name='" << obj->name << "', ID=" << obj->id().id << ", volumes=" << obj->volumes.size() << ", instances=" << obj->instances.size() << ", layer_config_ranges=" << obj->layer_config_ranges.size();
+            }
             items.emplace_back(ItemType::itObject, it->first, 0);
         }
         wxGetApp().obj_list()->delete_from_model_and_list(items);
@@ -1926,8 +1937,15 @@ void Selection::erase()
         }
         wxGetApp().obj_list()->delete_from_model_and_list(items);
     }
-    else if (is_single_full_instance())
-        wxGetApp().obj_list()->delete_from_model_and_list(ItemType::itInstance, get_object_idx(), get_instance_idx());
+    else if (is_single_full_instance()) {
+        int obj_idx = get_object_idx();
+        int inst_idx = get_instance_idx();
+        if (obj_idx >= 0 && obj_idx < (int)m_model->objects.size()) {
+            const ModelObject* obj = m_model->objects[obj_idx];
+            BOOST_LOG_TRIVIAL(warning) << "Selection::erase() - Single instance deletion: object_name='" << obj->name << "', object_ID=" << obj->id().id << ", instance_idx=" << inst_idx << ", total_instances=" << obj->instances.size();
+        }
+        wxGetApp().obj_list()->delete_from_model_and_list(ItemType::itInstance, obj_idx, inst_idx);
+    }
     else if (is_mixed()) {
         std::set<ItemForDelete> items_set;
         std::map<int, int> volumes_in_obj;

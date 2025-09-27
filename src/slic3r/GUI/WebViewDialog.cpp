@@ -907,9 +907,6 @@ void WebViewPanel::RunScript(const wxString& javascript)
     if (!m_browser)
         return;
     void* backend_after = m_browser->GetNativeBackend();
-    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " this Address: " << (void*) this << " wxWebView address: " << (void*) m_browser
-                               << ", Backend Ptr AFTER: " << backend_after;                           
-    boost::log::core::get()->flush();
 
     WebView::RunScript(m_browser, javascript);
 }

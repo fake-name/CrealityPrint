@@ -16,6 +16,18 @@
     }
     #endif /* SLIC3R_GUI */
 #endif /* WIN32 */
+#ifdef _MSC_VER
+#include <new.h>
+// MSVC-sized new-handler adapter: capture requested allocation size without allocating/logging here.
+static _PNH g_cp_prev_new_handler_pnh = nullptr;
+static thread_local size_t g_cp_last_new_req_size = 0;
+static int __cdecl g_cp_sized_new_handler_adapter(size_t bytes) noexcept {
+    g_cp_last_new_req_size = bytes; // record for later logging in the void-handler
+    _PNH prev = g_cp_prev_new_handler_pnh;
+    if (prev) return prev(bytes);   // delegate to existing handler (installed by std::set_new_handler)
+    return 0;                       // no previous handler: fail without retry
+}
+#endif
 
 #include <cstdio>
 #include <string>
@@ -29,6 +41,9 @@
 #include <boost/thread.hpp>
 //add json logic
 #include "nlohmann/json.hpp"
+#include <unistd.h>
+#include <sys/wait.h>
+#include <climits>
 
 using namespace nlohmann;
 #endif
@@ -91,6 +106,7 @@ using namespace nlohmann;
 #include "slic3r/GUI/GLCanvas3D.hpp"
 #include "slic3r/GUI/Camera.hpp"
 #include "slic3r/GUI/Plater.hpp"
+
 
 #include <GLFW/glfw3.h>
 
@@ -1100,6 +1116,8 @@ int CLI::run(int argc, char **argv)
         return CLI_INVALID_PARAMS;
     }
     BOOST_LOG_TRIVIAL(info) << "finished setup params, argc="<< argc << std::endl;
+        // Handle minidump crash report parameter on Linux (similar to Windows implementation)
+    
     std::string temp_path = wxFileName::GetTempDir().utf8_str().data();
     set_temporary_dir(temp_path);
     m_extra_config.apply(m_config, true);
@@ -6297,6 +6315,8 @@ LONG WINAPI VectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
 extern "C" {
     __declspec(dllexport) int __stdcall crealityprint_main(int argc, wchar_t **argv)
     {
+        BOOST_LOG_TRIVIAL(error) << "crealityprint_main start";
+	boost::log::core::get()->flush();
         // Convert wchar_t arguments to UTF8.
         std::vector<std::string> 	argv_narrow;
         std::vector<char*>			argv_ptrs(argc + 1, nullptr);
@@ -6386,9 +6406,167 @@ extern "C" {
         SET_DEFULTER_HANDLER();
 #endif
         std::set_new_handler([]() {
-            int *a = nullptr;
-            *a     = 0;
-            });
+            static bool already_in_handler = false;
+
+            if (already_in_handler) {
+                already_in_handler = false; // 重置共享的标志位
+                throw std::bad_alloc();     // 直接抛出异常返回，防止递归死循环
+            }
+
+            already_in_handler = true; // 第一层设置标志位
+
+            // 打印日志（可能触发递归）
+            system_memory_stats(__FUNCTION__);
+#ifdef _MSC_VER
+            // 追加：记录到的本次失败分配请求大小（来自 CRT sized new-handler），便于判断是否异常大块
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " RequestedNewSize=" << (unsigned long long)g_cp_last_new_req_size;
+#endif
+#ifdef _WIN32
+            // 追加：打印当前进程内存快照（忽略日志级别抑制）
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " process memory info " << log_memory_info(true);
+            // 追加：系统内存状态快照，辅助判断是否接近提交/物理内存上限
+            MEMORYSTATUSEX gmsx{};
+            gmsx.dwLength = sizeof(gmsx);
+            if (GlobalMemoryStatusEx(&gmsx)) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__
+                                         << " GlobalMemoryStatusEx: MemoryLoad=" << gmsx.dwMemoryLoad
+                                         << " TotalPhys=" << (unsigned long long)gmsx.ullTotalPhys
+                                         << " AvailPhys=" << (unsigned long long)gmsx.ullAvailPhys
+                                         << " TotalPageFile=" << (unsigned long long)gmsx.ullTotalPageFile
+                                         << " AvailPageFile=" << (unsigned long long)gmsx.ullAvailPageFile;
+            }
+            // 追加：进程句柄数（大量句柄泄漏可能导致失败）
+            DWORD handle_count = 0;
+            if (GetProcessHandleCount(GetCurrentProcess(), &handle_count)) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " HandleCount=" << handle_count;
+            }
+    #ifdef SLIC3R_GUI
+            // 追加：GUI 资源占用（仅 GUI 进程有效）
+            DWORD gdi_count  = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+            DWORD user_count = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " GUIResources: GDI=" << gdi_count << " USER=" << user_count;
+    #endif
+            // 追加：系统提交信息（更直观的 CommitTotal/CommitLimit），使用动态获取避免包含 <psapi.h>
+            typedef struct _MY_PERFORMANCE_INFORMATION {
+                DWORD  cb;
+                SIZE_T CommitTotal;
+                SIZE_T CommitLimit;
+                SIZE_T CommitPeak;
+                SIZE_T PhysicalTotal;
+                SIZE_T PhysicalAvailable;
+                SIZE_T SystemCache;
+                SIZE_T KernelTotal;
+                SIZE_T KernelPaged;
+                SIZE_T KernelNonpaged;
+                SIZE_T PageSize;
+                DWORD  HandleCount;
+                DWORD  ProcessCount;
+                DWORD  ThreadCount;
+            } MY_PERFORMANCE_INFORMATION, *PMY_PERFORMANCE_INFORMATION;
+            typedef BOOL (WINAPI *PFN_GetPerformanceInfo)(PMY_PERFORMANCE_INFORMATION, DWORD);
+            HMODULE hPsapi = GetModuleHandleW(L"psapi.dll");
+            bool psapi_loaded = false;
+            if (!hPsapi) { hPsapi = LoadLibraryW(L"psapi.dll"); psapi_loaded = (hPsapi != nullptr); }
+            if (hPsapi) {
+                auto pGetPerformanceInfo = reinterpret_cast<PFN_GetPerformanceInfo>(GetProcAddress(hPsapi, "GetPerformanceInfo"));
+                if (pGetPerformanceInfo) {
+                    MY_PERFORMANCE_INFORMATION pinf{};
+                    pinf.cb = sizeof(pinf);
+                    if (pGetPerformanceInfo(&pinf, sizeof(pinf))) {
+                        const unsigned long long page = (unsigned long long)pinf.PageSize;
+                        BOOST_LOG_TRIVIAL(error) << __FUNCTION__
+                            << " PerformanceInfo: CommitTotal=" << (unsigned long long)pinf.CommitTotal * page
+                            << " CommitLimit=" << (unsigned long long)pinf.CommitLimit * page
+                            << " CommitPeak=" << (unsigned long long)pinf.CommitPeak * page
+                            << " PhysicalTotal=" << (unsigned long long)pinf.PhysicalTotal * page
+                            << " PhysicalAvailable=" << (unsigned long long)pinf.PhysicalAvailable * page
+                            << " SystemCache=" << (unsigned long long)pinf.SystemCache * page
+                            << " KernelTotal=" << (unsigned long long)pinf.KernelTotal * page
+                            << " KernelPaged=" << (unsigned long long)pinf.KernelPaged * page
+                            << " KernelNonpaged=" << (unsigned long long)pinf.KernelNonpaged * page
+                            << " ProcessCount=" << (unsigned long long)pinf.ProcessCount
+                            << " HandleCount=" << (unsigned long long)pinf.HandleCount
+                            << " ThreadCount=" << (unsigned long long)pinf.ThreadCount;
+                    }
+                }
+                if (psapi_loaded) FreeLibrary(hPsapi);
+             }
+            
+            // 追加：是否处于 Job（可能存在 Job 内存/工作集限制）
+            BOOL in_job = FALSE;
+            if (IsProcessInJob(GetCurrentProcess(), NULL, &in_job)) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " InJob=" << (in_job ? 1 : 0);
+            }
+            // 追加：进程工作集限制（若被显式限制可在此体现）
+            SIZE_T ws_min = 0, ws_max = 0; DWORD ws_flags = 0;
+            if (GetProcessWorkingSetSizeEx(GetCurrentProcess(), &ws_min, &ws_max, &ws_flags)) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " WorkingSetLimit: min=" << (unsigned long long)ws_min
+                                         << " max=" << (unsigned long long)ws_max
+                                         << " flags=0x" << std::hex << ws_flags << std::dec;
+            }
+            // 追加：捕获调用栈（地址+模块），帮助定位是谁在请求大块内存
+            {
+                HMODULE hK32 = GetModuleHandleW(L"kernel32.dll");
+                typedef USHORT (WINAPI *PFN_RtlCaptureStackBackTrace)(ULONG, ULONG, PVOID*, PULONG);
+                auto pBacktrace = reinterpret_cast<PFN_RtlCaptureStackBackTrace>(hK32 ? GetProcAddress(hK32, "RtlCaptureStackBackTrace") : nullptr);
+                if (pBacktrace) {
+                    void* frames[32] = { 0 };
+                    USHORT captured = pBacktrace(0, (ULONG)_countof(frames), frames, nullptr);
+                    for (USHORT i = 0; i < captured; ++i) {
+                        void* addr = frames[i];
+                        MEMORY_BASIC_INFORMATION mbi2{};
+                        const char* mod_name = "";
+                        char mod_path[260] = { 0 };
+                        if (VirtualQuery(addr, &mbi2, sizeof(mbi2)) == sizeof(mbi2)) {
+                            HMODULE hMod = (HMODULE)mbi2.AllocationBase;
+                            DWORD n = GetModuleFileNameA(hMod, mod_path, (DWORD)sizeof(mod_path));
+                            if (n > 0) mod_name = mod_path;
+                        }
+                        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " Backtrace[" << i << "]: addr=" << addr
+                                                 << " module=" << mod_name;
+                    }
+                }
+            }
+            // 地址空间遍历，估计可用区块与碎片程度
+            SIZE_T largest_free = 0;
+            SIZE_T free_regions = 0;
+            SIZE_T total_free = 0;
+            SIZE_T regions_scanned = 0;
+            MEMORY_BASIC_INFORMATION mbi{};
+            unsigned char* addr = nullptr;
+            while (VirtualQuery(addr, &mbi, sizeof(mbi)) == sizeof(mbi)) {
+                if (mbi.State == MEM_FREE) {
+                    ++free_regions;
+                    total_free += (SIZE_T)mbi.RegionSize;
+                    if ((SIZE_T)mbi.RegionSize > largest_free) largest_free = (SIZE_T)mbi.RegionSize;
+                }
+                unsigned char* next = (unsigned char*)mbi.BaseAddress + mbi.RegionSize;
+                if (next <= addr) break;
+                addr = next;
+                if (++regions_scanned > 100000) break; // 安全上限，避免极端情况下扫描过久
+            }
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " VAS: free_regions=" << (size_t)free_regions
+                                     << " total_free=" << (size_t)total_free
+                                     << " largest_free=" << (size_t)largest_free
+                                     << " ptr_size=" << sizeof(void*);
+            // 启发式判断：地址空间耗尽 / 碎片化
+            if (largest_free < (SIZE_T)(16ull << 20)) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " Heuristic: Address space exhaustion likely (largest_free < 16MB)";
+            }
+            if (free_regions > 1024 && largest_free * 4 < total_free) {
+                BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " Heuristic: Severe VAS fragmentation suspected";
+            }
+#endif
+            boost::log::core::get()->flush();
+            already_in_handler = false; 
+            int *p = nullptr;
+            *p                 = 100;
+            throw std::bad_alloc();
+        });
+#ifdef _MSC_VER
+        // Install the sized CRT new-handler adapter AFTER the C++ handler so we can chain to it and capture size.
+        g_cp_prev_new_handler_pnh = _set_new_handler(&g_cp_sized_new_handler_adapter);
+#endif
         // Call the UTF8 main.
         return CLI().run(argc, argv_ptrs.data());
     }
@@ -6398,29 +6576,90 @@ extern "C" {
 #ifdef USE_BREAKPAD
 static bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor,void* context, bool succeeded) {
                 printf("Dump path: %s\n", descriptor.path());
+		 if (succeeded) {
+		     boost::filesystem::path oldPath(descriptor.path());
+		     std::string data_dir = Slic3r::data_dir();
+		     //std::string data_dir = wxStandardPaths::Get().GetUserDataDir().ToUTF8().data();
+		     //A.0
+		     std::string version_dir = CREALITYPRINT_VERSION_MAJOR + std::string(".0");
+		     std::string version = std::string(PROJECT_VERSION_EXTRA);
+		     bool        is_alpha = boost::algorithm::icontains(version, "alpha");
+		     if (is_alpha) {
+			 version_dir = version_dir + std::string(" Alpha");
+		     }
+		     std::string LogFilePath = data_dir + "/" + "log";
+		     if (!LogFilePath.empty() && !boost::filesystem::exists(LogFilePath)) {
+			 boost::filesystem::create_directories(LogFilePath);
+		     }
+		     boost::filesystem::path logPath(LogFilePath);
+
+		     boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
+		     // 创建一个 time_facet 对象，用于自定义时间格式
+		     boost::posix_time::time_facet* timeFacet = new boost::posix_time::time_facet();
+		     std::stringstream ss;
+		     // 设置时间格式为 yyyyMMDD_hhmmss
+		     timeFacet->format("%Y%m%d_%H%M%S");
+		     ss.imbue(std::locale(std::locale::classic(), timeFacet));
+		     ss << now;
+
+		     std::string timeStr = ss.str();
+		     std::string processNameStr = timeStr + std::string("_") + SLIC3R_PROCESS_NAME + std::string("_") + CREALITYPRINT_VERSION + std::string("_") + PROJECT_VERSION_EXTRA + std::string(".dmp");
+		     logPath.append(processNameStr);
+
+		     if (boost::filesystem::exists(oldPath)) {
+			 boost::filesystem::rename(oldPath, logPath);
+			 // 获取当前可执行文件路径
+			 char exePath[PATH_MAX];
+			 ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+			 if (len != -1) {
+			     exePath[len] = '\0';
+			     std::string command = std::string(exePath) + " \"minidump://file=" + logPath.string() + "\"";
+			     // 使用fork和exec启动新进程
+			     pid_t pid = fork();
+			     if (pid == 0) {
+				 // 子进程
+				 execl("/bin/sh", "sh", "-c", command.c_str(), (char*)NULL);
+				 _exit(1); // 如果exec失败
+			     } else if (pid > 0) {
+				 // 父进程继续执行
+			     }
+			 }
+		     }
+		     
+		     BOOST_LOG_TRIVIAL(info) << "MiniDump succeeded: " << descriptor.path();
+		 } else {
+		     BOOST_LOG_TRIVIAL(error) << "MiniDump failed: " << descriptor.path();
+		 }
                 return succeeded;
             }
 #endif
 #endif
 int main(int argc, char **argv)
 {
+   BOOST_LOG_TRIVIAL(error) << "main start";
 #ifdef __linux__
+   BOOST_LOG_TRIVIAL(error) << "main __linux__";
     setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", 1);
 #endif
     
     boost::filesystem::path   tempPath = boost::filesystem::path(wxFileName::GetTempDir().ToStdString());
     if (argc == 2 && boost::starts_with(std::string(argv[1]), "minidump://file=")) {
-
+	 // 处理崩溃报告参数，直接启动GUI应用程序
+	 return CLI().run(argc, argv);
     }else
     {
-        #if defined(__linux__) || defined(__LINUX__)
+       BOOST_LOG_TRIVIAL(error) << "main check linux";
+       #if defined(__linux__) || defined(__LINUX__)
              #ifdef USE_BREAKPAD
+                BOOST_LOG_TRIVIAL(error) << "main google_breakpad init";
                 google_breakpad::MinidumpDescriptor descriptor("/tmp");
                 google_breakpad::ExceptionHandler eh(descriptor, NULL, dumpCallback, NULL, true, -1);
+                BOOST_LOG_TRIVIAL(error) << "main google_breakpad init finished";
+                return CLI().run(argc, argv);
             #endif
         #endif
-       
     }
+    
     return CLI().run(argc, argv);
 }
 #endif /* _MSC_VER */

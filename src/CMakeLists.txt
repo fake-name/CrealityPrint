@@ -113,7 +113,8 @@ if (SLIC3R_GUI)
     if(LIBOSS)
         list(APPEND wxWidgets_LIBRARIES ${LIBOSS} OpenSSL::SSL OpenSSL::Crypto)
     endif()
-    
+    find_package(PahoMqttCpp REQUIRED)
+    list(APPEND wxWidgets_LIBRARIES PahoMqttCpp::paho-mqttpp3-static)
     # This fixes a OpenGL linking issue on OSX. wxWidgets cmake build includes
     # wrong libs for opengl in the link line and it does not link to it by himself.
     # libslic3r_gui will link to opengl anyway, so lets override wx
@@ -227,6 +228,8 @@ else()
   target_link_libraries(${PROJECT_DLL} libslic3r cereal::cereal ${LIB_ASSIMP})
 endif()
 
+find_library(CP_TPMS_Gradual cr_tpms_library)
+target_link_libraries(${PROJECT_DLL} ${CP_TPMS_Gradual})
 if (APPLE)
 #    add_compile_options(-stdlib=libc++)
 #    add_definitions(-DBOOST_THREAD_DONT_USE_CHRONO -DBOOST_NO_CXX11_RVALUE_REFERENCES -DBOOST_THREAD_USES_MOVE)

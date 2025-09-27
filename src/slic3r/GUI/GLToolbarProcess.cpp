@@ -457,7 +457,10 @@ namespace ProcessBar {
 				}
 			}
 		}
-
+        if (!tooltip.empty()) {
+            ImGui::SetTooltip("%s", tooltip.c_str());
+            tooltip.clear();
+        }
 		return tooltip;
 	}
 

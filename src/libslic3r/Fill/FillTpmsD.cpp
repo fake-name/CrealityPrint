@@ -150,10 +150,10 @@ private:
 };
 
 namespace MarchingSquares {
-struct Point
-{
-    double x, y;
-};
+//struct Point
+//{
+//    double x, y;
+//};
 
 vector<double> getGridValues(int i, int j, vector<vector<double>>& data)
 {
@@ -624,7 +624,45 @@ static float get_cos(float angle)
      }
  
  }
-void FillTpmsD::_fill_surface_single(const FillParams&              params,
+
+
+void FillTpmsD::cal_scalar_field(const FillParams& params,
+                                 std::vector<std::vector<MarchingSquares::Point>>& posxy,
+                                 std::vector<std::vector<double>>& data)
+{
+    float vari_T = getTby(int(params.density * 100));
+
+    float myperiod = 2 * PI / vari_T;
+    float c_z      = myperiod * this->z;
+    float cos_z    = get_cos(c_z);
+    float sin_z    = get_sin(c_z);
+
+    auto scalar_field = [&](float x, float y) {
+        // TPMS-D
+        float a_x = myperiod * x;
+        float b_y = myperiod * y;
+        float r   = get_cos(a_x) * get_cos(b_y) * cos_z - get_sin(a_x) * get_sin(b_y) * sin_z;
+        return r;
+    };
+
+    
+    int width      = posxy[0].size();
+    int height     = posxy.size();
+    int total_size = (height) * (width);
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, total_size),
+                      [&width, &scalar_field, &data, &posxy](const tbb::blocked_range<size_t>& range) {
+                          for (size_t k = range.begin(); k < range.end(); ++k) {
+                              int i      = k / (width); // 计算行索引
+                              int j      = k % (width); // 计算列索引
+                              data[i][j] = scalar_field(posxy[i][j].x, posxy[i][j].y);
+                          }
+                      });
+
+
+     
+}
+
+ void FillTpmsD::_fill_surface_single(const FillParams&              params,
                                      unsigned int                   thickness_layers,
                                      const std::pair<float, Point>& direction,
                                      ExPolygon                      expolygon,
@@ -634,27 +672,13 @@ void FillTpmsD::_fill_surface_single(const FillParams&              params,
         _fill_surface_single_brige(params, thickness_layers, direction, expolygon, polylines_out);
         return;
     }
-    float vari_T = getTby(int(params.density * 100));
 
     BoundingBox bb      = expolygon.contour.bounding_box();
     auto        cenpos  = unscale(bb.center());
     auto        boxsize = unscale(bb.size());
     float       xlen    = boxsize.x();
     float       ylen    = boxsize.y();
-
-    float delta    = 0.5f;
-    float myperiod = 2 * PI / vari_T;
-    float c_z          = myperiod * this->z;
-    float cos_z        = get_cos(c_z);
-    float sin_z        = get_sin(c_z);
-
-    auto scalar_field = [&](float x, float y) {
-        // TPMS-D
-        float a_x = myperiod * x;
-        float b_y = myperiod * y;        
-        float r   = get_cos(a_x) * get_cos(b_y) * cos_z - get_sin(a_x) * get_sin(b_y) * sin_z;
-        return r;
-    };
+    float       delta = 0.5f;
 
     std::vector<std::vector<MarchingSquares::Point>> posxy;
     int                                              i = 0, j = 0;
@@ -673,17 +697,7 @@ void FillTpmsD::_fill_surface_single(const FillParams&              params,
 
     std::vector<std::vector<double>> data(posxy.size(), std::vector<double>(posxy[0].size())); 
 
-    int   width      = posxy[0].size();
-    int   height     = posxy.size();
-    int   total_size = (height) * (width);
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, total_size),
-                      [ &width, &scalar_field, &data, &posxy](const tbb::blocked_range<size_t>& range) {
-                          for (size_t k = range.begin(); k < range.end(); ++k) {
-                              int i      = k / (width); // 计算行索引
-                              int j      = k % (width); // 计算列索引
-                              data[i][j] = scalar_field(posxy[i][j].x, posxy[i][j].y);
-                          }
-                      });
+    cal_scalar_field(params, posxy, data);
 
     Polylines polylines;
     MarchingSquares::drawContour(0, j, i, data, posxy, polylines);

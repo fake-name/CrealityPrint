@@ -1973,6 +1973,9 @@ msgstr "por defecto"
 msgid "Height to rod"
 msgstr "Altura a la barra"
 
+msgid "multicolor method"
+msgstr "Calculation of flush amount slice"
+
 msgid ""
 "Distance of the nozzle tip to the lower rod. Used for collision avoidance in "
 "by-object printing."

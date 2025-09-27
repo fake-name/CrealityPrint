@@ -649,14 +649,23 @@ std::shared_ptr<HttpServer::Response> HttpServer::creality_handle_request(const 
     if(path.find("/login") == 0) {
         std::string   result_url = url_get_param(url, "result_url");
         std::string   code       = url_get_param(url, "code");
+        std::string region = wxGetApp().app_config->get("region");
          std::string location_str = (boost::format("%1%?result=success") % result_url).str();
         Http::set_extra_headers(wxGetApp().get_extra_header());
         std::string base_url              = get_cloud_api_url();
         Http http = Http::post(base_url + "/api/cxy/account/v2/oauthLogin");
         json        j;
         j["code"]  = code;
-        j["clientId"]  = "f9c302ecc29c59a0a6e921ff39a073ca";
-        j["redirecturi"]  = (boost::format("https://www.crealitycloud.com/oauth?back_url=http://localhost:%1%/login") % wxGetApp().get_server_port()).str();;
+        if(region=="China")
+        {
+            j["clientId"]  = "8ea5010984fa52a298f12110af8b05d0";
+            j["redirecturi"]  = (boost::format("https://www.crealitycloud.cn/oauth?back_url=http://localhost:%1%/login") % wxGetApp().get_server_port()).str();;
+        }else{
+            j["clientId"]  = "f9c302ecc29c59a0a6e921ff39a073ca";
+            j["redirecturi"]  = (boost::format("https://www.crealitycloud.com/oauth?back_url=http://localhost:%1%/login") % wxGetApp().get_server_port()).str();
+        }
+        
+        
         if(code==""){
             location_str = (boost::format("%1%?result=fail?code=1000") % result_url).str();
             return std::make_shared<ResponseRedirect>(location_str);
@@ -678,7 +687,6 @@ std::shared_ptr<HttpServer::Response> HttpServer::creality_handle_request(const 
                                 int code = j["code"];
                                 if(code==0)
                                 {
-                                    std::string region = wxGetApp().app_config->get("region");
                                     auto user_file = fs::path(data_dir()).append("user_info.json");
                                     json data_node = j["result"];
                                     json r;

@@ -151,6 +151,9 @@ enum class NotificationType
 	BBLPreviewOnlyMode,
     BBLPrinterConfigUpdateAvailable,
 	BBLUserPresetExceedLimit,
+
+	SupportManualHint,
+
 };
 
 class NotificationManager
@@ -351,6 +354,12 @@ public:
 	//BBS--sole notification
     void bbl_show_sole_text_notification(NotificationType sType,const std::string &text, bool bOverride, int level, bool autohide);
     void bbl_chose_sole_text_notification(NotificationType sType);
+
+    void push_support_manual_hint(const std::string& text, int duration_sec = 0);
+    void close_support_manual_hint();
+
+
+	void cleanup_arrange_notifications();
 
 private:
 	// duration 0 means not disapearing

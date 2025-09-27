@@ -309,6 +309,11 @@ private:
   public:
       //try again when subscription fails
     void            on_start_subscribe_again(std::string dev_id);
+    void            openDevelopMode(bool open);
+    void            initDevelopParams();
+    bool            isAlpha();
+    bool            isDevelopParams(const std::string key);
+	std::string     getDevelopParamsType(const std::string key);
     void            check_filaments_in_blacklist(std::string tag_supplier, std::string tag_material, bool& in_blacklist, std::string& action, std::string& info);
     std::string     get_local_models_path();
     bool            OnInit() override;
@@ -356,6 +361,9 @@ private:
 
     bool send_app_message(const std::string& msg,bool bforce = false);
     void reload_homepage();
+    //mouse_scheme
+    void on_interinstance_message(const std::string& msg);
+
     std::vector<std::string> split_str(std::string src, std::string separator);
     // To be called after the GUI is fully built up.
     // Process command line parameters cached in this->init_params,
@@ -547,6 +555,7 @@ private:
     ConfigOptionMode get_mode();
     std::string     get_mode_str();
     void            save_mode(const /*ConfigOptionMode*/int mode, bool need_save = true) ;
+    void            update_develop_state() ;
     void             update_mode(const int mode = -1    );
     void            update_internal_development();
     void            show_ip_address_enter_dialog(wxString title = wxEmptyString);
@@ -605,7 +614,7 @@ private:
     NotificationManager * notification_manager();
     Downloader*          downloader();
 
-
+    std::map<std::string, std::string> m_DevelopParamslist;
     std::string         m_mall_model_download_url;
     std::string         m_mall_model_download_name;
     ModelMallDialog*    m_mall_publish_dialog{ nullptr };

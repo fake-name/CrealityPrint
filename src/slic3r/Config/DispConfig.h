@@ -139,6 +139,7 @@ namespace GUI {
         int combo(const std::vector<std::string>& list, int current,ComboConfig = {});
         
         ImVec2 boldText(const std::string&,float scale = 1);
+        ImVec2 boldTextWrapped(const std::string& str, float scale, float wrap_start_x);
     };
 
 }}

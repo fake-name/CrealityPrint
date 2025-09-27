@@ -349,6 +349,12 @@ bool GLGizmoEmboss::create_volume(ModelVolumeType volume_type)
 
 void GLGizmoEmboss::on_shortcut_key() {
     set_volume_by_selection();
+    //fix:Click the relief card again in the relief function interface without exiting the relief function interface
+    auto& mng = m_parent.get_gizmos_manager();
+    if (mng.get_current_type() == GLGizmosManager::Emboss) {
+        mng.open_gizmo(GLGizmosManager::Emboss);
+        return;
+    }
     if (m_volume == nullptr) {
         // No volume to select from selection so create volume.
         // NOTE: After finish job for creation emboss Text volume,
@@ -357,7 +363,7 @@ void GLGizmoEmboss::on_shortcut_key() {
     }
     else {
         // shortcut is pressed when text is selected soo start edit it.
-        auto& mng = m_parent.get_gizmos_manager();
+        //auto& mng = m_parent.get_gizmos_manager();
         if (mng.get_current_type() != GLGizmosManager::Emboss)
             mng.open_gizmo(GLGizmosManager::Emboss);
     }

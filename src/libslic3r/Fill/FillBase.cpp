@@ -27,6 +27,7 @@
 #include "FillConcentricInternal.hpp"
 #include "FillCrossHatch.hpp"
 #include "FillTpmsD.hpp"
+#include "FillTpmsGradual.hpp"
 
 // #define INFILL_DEBUG_OUTPUT
 #define FRIST_LINE_LAYER 85732
@@ -49,6 +50,9 @@ Fill* Fill::new_from_type(const InfillPattern type)
     case ip3DHoneycomb:         return new Fill3DHoneycomb();
     case ipGyroid:              return new FillGyroid();
     case ipTpmsD:               return new FillTpmsD();
+    case ipGradualTpmsG:        return new FillTpmsGradual(0);
+    case ipGradualTpmsD:        return new FillTpmsGradual(1);
+    case ipGradualTpmsFKS:      return new FillTpmsGradual(3);
     case ipRectilinear:         return new FillRectilinear();
     case ipAlignedRectilinear:  return new FillAlignedRectilinear();
     case ipCrossHatch:          return new FillCrossHatch();

@@ -929,6 +929,32 @@ wxBoxSizer *PreferencesDialog::create_item_checkbox(wxString title, wxWindow *pa
             }
         }
 
+		if (param == "enable_lod") {
+            if (wxGetApp().plater()->is_project_dirty()) {
+                auto result = MessageDialog(static_cast<wxWindow*>(this),
+                                            _L("The current project has unsaved changes, save it before continue?"),
+                                            wxString(SLIC3R_APP_FULL_NAME) + " - " + _L("Save"), wxYES_NO | wxYES_DEFAULT | wxCENTRE)
+                                  .ShowModal();
+                if (result == wxID_YES) {
+                    wxGetApp().plater()->save_project();
+                }
+            }
+            MessageDialog msg_wingow(nullptr,
+                                     _L("Please note that the model show will undergo certain changes at small pixels case.\nEnabled LOD "
+                                        "requires application restart.") +
+                                         "\n" + _L("Do you want to continue?"),
+                                     _L("Enable LOD"), wxYES | wxYES_DEFAULT | wxCANCEL | wxCENTRE);
+            if (msg_wingow.ShowModal() == wxID_YES) {
+                Close();
+                GetParent()->RemoveChild(this);
+                wxGetApp().recreate_GUI(_L("Enable LOD"));
+            } else {
+                checkbox->SetValue(!checkbox->GetValue());
+                app_config->set_bool(param, checkbox->GetValue());
+                app_config->save();
+            }
+        }
+
         e.Skip();
     });
 
@@ -1229,6 +1255,19 @@ PreferencesDialog::PreferencesDialog(wxWindow *parent, wxWindowID id, const wxSt
 
         event.Skip();
         });
+
+    this->Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& evt) {
+#ifdef __APPLE__
+        if (evt.CmdDown() && evt.ShiftDown() && evt.RawControlDown() && evt.GetKeyCode() == 'K')
+#else
+        if (evt.CmdDown() && evt.ShiftDown() && evt.AltDown() && evt.GetKeyCode() == 'K')
+#endif
+        {
+            app_config->set("role_type", "1");
+            //Slic3r::GUI::wxGetApp().save_mode(comDevelop);
+            Slic3r::GUI::wxGetApp().openDevelopMode(true);
+        }
+    });
 }
 
 void PreferencesDialog::create()
@@ -1381,7 +1420,7 @@ wxWindow* PreferencesDialog::create_general_page()
     std::sort(language_infos.begin(), language_infos.end(), [](const wxLanguageInfo *l, const wxLanguageInfo *r) { return l->Description < r->Description; });
     auto item_language = create_item_language_combobox(_L("Language"), page, _L("Language"), 50, "language", language_infos);
 
-    std::vector<wxString> Regions         = {_L("Asia-Pacific"), _L("China"), _L("Europe"), _L("North America"), _L("Others")};
+    std::vector<wxString> Regions         = {_L("Asia-Pacific"), _L("Chinese Mainland"), _L("Europe"), _L("North America"), _L("Others")};
     auto                  item_region= create_item_region_combobox(_L("Login Region"), page, _L("Login Region"), Regions);
 
     std::vector<wxString> Units         = {_L("Metric") + " (mm, g)", _L("Imperial") + " (in, oz)"};
@@ -1399,6 +1438,10 @@ wxWindow* PreferencesDialog::create_general_page()
     auto item_step_import_setting    = create_item_checkbox(_L("Display Step Import Setting Dialog"), page, _L("Display Step Import Setting Dialog"), 50,
                                                   "enable_step_mesh_setting");
     
+    auto enable_lod_settings =
+        create_item_checkbox(_L("Improve rendering performance by lod"), page,
+                             _L("Improved rendering performance under the scene of multiple plates and many models."), 50, "enable_lod");
+
     //item_user_exp->
     auto item_save_presets = create_item_button(_L("Clear my choice on the unsaved presets."), _L("Clear"), page, L"", _L("Clear my choice on the unsaved presets."), []() {
         wxGetApp().app_config->set("save_preset_choise", "");
@@ -1451,6 +1494,8 @@ wxWindow* PreferencesDialog::create_general_page()
     sizer_page->Add(item_user_exp, 0, wxTOP, FromDIP(3));
     sizer_page->AddSpacer(FromDIP(5));
 #endif
+    sizer_page->Add(enable_lod_settings, 0, wxTOP, FromDIP(3));
+    sizer_page->AddSpacer(FromDIP(5));
 
     sizer_page->Add(item_step_import_setting, 0, wxTOP, FromDIP(3));
     sizer_page->AddSpacer(FromDIP(5));

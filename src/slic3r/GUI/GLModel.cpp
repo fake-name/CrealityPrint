@@ -763,7 +763,9 @@ void GLModel::render_instanced_ex()
     if (offset_id == -1)
         return;
 
+    // sends data to gpu if not done yet; fix bug: color volume( with mmu_segmentation_facets data) from 3mf, when clone preview, could not render 
     if (m_render_data->vbo_id == 0 || m_render_data->ibo_id == 0) {
+        if (m_render_data->geometry.vertices_count() > 0 && m_render_data->geometry.indices_count() > 0 && !send_to_gpu())
             return;
     }
 

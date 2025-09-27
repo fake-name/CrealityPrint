@@ -741,6 +741,25 @@ WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam
             }
         }
         break;
+        
+    case WM_COPYDATA: {
+        const COPYDATASTRUCT* cds = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+        if (cds && cds->lpData && cds->cbData >= sizeof(wchar_t)) {
+            const wchar_t* wptr = static_cast<const wchar_t*>(cds->lpData);
+            size_t         wlen = cds->cbData / sizeof(wchar_t);
+            if (wlen && wptr[wlen - 1] == L'\0')
+                --wlen;
+
+            std::wstring wmsg(wptr, wlen);
+            std::string  msg = boost::nowide::narrow(wmsg);
+
+            if (msg.rfind("CP_", 0) == 0) {
+                wxGetApp().on_interinstance_message(msg);
+                return 0; 
+            }
+        }
+        break;
+    }
     }
     return wxFrame::MSWWindowProc(nMsg, wParam, lParam);
 }
@@ -4457,7 +4476,14 @@ void MainFrame::FileHistory::LoadThumbnails()
     //std::reverse(recent_project_times.begin(), recent_project_times.end());
     for (int j = 0; j < recent_project_times.size(); j++)
     {
-        m_file_open_time[j] = recent_project_times[j];
+        if (j < m_file_open_time.size()) {
+            m_file_open_time[j] = recent_project_times[j];        
+        } else {
+            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << " m_file_open_time size is " << m_file_open_time.size() << ";recent_project_times size is "
+                                     << recent_project_times.size();
+            boost::log::core::get()->flush();
+            break;
+        }
     }
 
     m_load_called = true;
@@ -4800,7 +4826,6 @@ void SettingsDialog::on_dpi_changed(const wxRect& suggested_rect)
     Fit();
     Refresh();
 }
-
 
 } // GUI
 } // Slic3r

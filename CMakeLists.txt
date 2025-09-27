@@ -766,6 +766,7 @@ function(crealityprint_copy_dlls target config postfix output_dlls)
             ${CMAKE_PREFIX_PATH}/bin/occt/TKXDESTEP.dll
             ${CMAKE_PREFIX_PATH}/bin/occt/TKXSBase.dll
             ${CMAKE_PREFIX_PATH}/bin/freetype.dll
+            ${CMAKE_PREFIX_PATH}/bin/cr_tpms_library.dll
          DESTINATION ${_out_dir})
     set(FFMPEG_LIBRARIES_OUTPUT_LIBS "")
     find_package(FFmpeg)
@@ -835,6 +836,7 @@ function(crealityprint_copy_dlls target config postfix output_dlls)
         )
     endif()
     set(${output_dlls}
+	    ${_out_dir}/cr_tpms_library.dll
         ${_out_dir}/libgmp-10.dll
         ${_out_dir}/libmpfr-4.dll
         ${_out_dir}/WebView2Loader.dll

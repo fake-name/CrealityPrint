@@ -128,6 +128,9 @@ void GLGizmoRotate::on_dragging(const UpdateData &data)
         theta = 0.0;
 
     m_angle = theta;
+
+    // fix bug: when rotate model higher, the top mesh will render error(disappear)
+    m_parent.set_use_clipping_planes(false);
 }
 
 void GLGizmoRotate::on_render()

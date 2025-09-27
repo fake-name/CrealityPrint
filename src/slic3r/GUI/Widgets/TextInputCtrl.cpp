@@ -45,6 +45,18 @@ TextInputCtrl::TextInputCtrl(wxWindow* parent, int id, wxString text, const wxPo
 
     
 }
+bool TextInputCtrl::Enable(bool enable)
+{
+    bool result = text_ctrl->Enable(enable) && wxWindow::Enable(enable);
+    if (result) {
+        wxCommandEvent e(EVT_ENABLE_CHANGED);
+        e.SetEventObject(this);
+        GetEventHandler()->ProcessEvent(e);
+        text_ctrl->SetBackgroundColour(background_color.colorForStates(state_handler.states()));
+        text_ctrl->SetForegroundColour(text_color.colorForStates(state_handler.states()));
+    }
+    return result;
+}
 
 void TextInputCtrl::paintEvent(wxPaintEvent& evt)
 {

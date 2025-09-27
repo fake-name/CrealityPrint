@@ -256,7 +256,7 @@ vector<AlibabaCloud::OSS::Part> UploadFile::uploadParts(AlibabaCloud::OSS::OssCl
     ifstream file(filePath, ios::binary | ios::ate);
     
     if (!file.is_open()) {
-        throw runtime_error("Failed to open file: " + filePath);
+        throw ErrorCodeException("uploadParts",1001,"Failed to open file: " + filePath);
     }
     
     int64_t fileSize = file.tellg();
@@ -277,7 +277,7 @@ vector<AlibabaCloud::OSS::Part> UploadFile::uploadParts(AlibabaCloud::OSS::OssCl
         
         if (!outcome.isSuccess()) {
             file.close();
-            throw runtime_error("UploadPart fail: " + 
+            throw ErrorCodeException("UploadPart",1002,"UploadPart fail: " + 
                               outcome.error().Code() + ", " + 
                               outcome.error().Message());
         }
@@ -291,7 +291,7 @@ vector<AlibabaCloud::OSS::Part> UploadFile::uploadParts(AlibabaCloud::OSS::OssCl
         if(m_cancel)
         {
             file.close();
-            throw runtime_error("Upload canceled");
+            throw ErrorCodeException("UploadPart",601,"Upload canceled");
         }
     }
     
@@ -308,7 +308,7 @@ void completeMultipartUpload(AlibabaCloud::OSS::OssClient& client,
     auto outcome = client.CompleteMultipartUpload(request);
     
     if (!outcome.isSuccess()) {
-        throw runtime_error("CompleteMultipartUpload fail: " + 
+        throw ErrorCodeException("CompleteMultipartUpload",1003,"CompleteMultipartUpload fail: " + 
                           outcome.error().Code() + ", " + 
                           outcome.error().Message());
     }
@@ -373,6 +373,14 @@ int UploadFile::uploadFileToAliyun(const std::string& local_path, const std::str
         
     cout << "Completing upload..." << endl;
     completeMultipartUpload(oss_client, m_bucket, upload_path, uploadId, partList);
+    }catch(const ErrorCodeException& e){
+        if (!uploadId.empty()) {
+            AlibabaCloud::OSS::AbortMultipartUploadRequest request(m_bucket, upload_path, uploadId);
+            oss_client.AbortMultipartUpload(request);
+        }
+        nRet = e.code();
+        m_lastError.code = std::to_string(e.code());
+        m_lastError.message = e.msg();
     }catch(const exception& e)
     {
         cerr << "Error: " << e.what() << endl;

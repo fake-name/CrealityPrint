@@ -350,6 +350,18 @@ modules:
         dest: external-packages/BREAKPAD
         sha256: 6031c0039e016242801673463562d01a70ae016bf842c1244581e29359e25552
 
+      # MQTT-C
+      - type: file
+        url: https://github.com/eclipse-paho/paho.mqtt.c/archive/refs/tags/v1.3.15.tar.gz
+        dest: external-packages/MQTTC
+        sha256: 60ce2cfdc146fcb81c621cb8b45874d2eb1d4693105d048f60e31b8f3468be90
+
+      # MQTT-CPP
+      - type: file
+        url: https://github.com/eclipse-paho/paho.mqtt.cpp/archive/refs/tags/v1.4.0.zip
+        dest: external-packages/MQTT
+        sha256: c165960f64322de21697eb06efdca3d74cce90f45ff5ff0efdd968708e13ba0c
+
   - name: CrealityPrint 
     buildsystem: simple
     build-commands:

@@ -11,6 +11,7 @@
 #include "slic3r/GUI/print_manage/data/DataType.hpp"
 #include "slic3r/GUI/print_manage/data/DataCenter.hpp"
 #include "slic3r/GUI/print_manage/AccountDeviceMgr.hpp"
+#include "CrProject.hpp"
 
 namespace Slic3r {
 namespace GUI {
@@ -112,6 +113,10 @@ void AnalyticsDataUploadManager::processUploadData(AnalyticsDataEventType dataEv
         uploadSoftwareCrashData();
         break;
 
+    case AnalyticsDataEventType::ANALYTICS_BAD_ALLOC: 
+        uploadSoftwareBadAlloc(); 
+        break;
+
     case AnalyticsDataEventType::ANALYTICS_SOFTWARE_CLOSE: 
         uploadSoftwareCloseData(); 
         break;
@@ -144,6 +149,8 @@ void AnalyticsDataUploadManager::uploadGlobalPrintParams(int plate_idx, const st
     const Print& plate_print = plate->get_print();
 
     const DynamicPrintConfig& print_full_config = plate_print.full_print_config();
+
+    Slic3r::AuxiliariesInfo auxiliaries_info = plater->get_auxiliaries_info();
 
     try
     {
@@ -222,6 +229,10 @@ void AnalyticsDataUploadManager::uploadGlobalPrintParams(int plate_idx, const st
             js["cloud_model_id"] = m_analytics_project_info.model_id;
             js["cloud_name"] = m_analytics_project_info.name;
         }
+
+        js["application"] = auxiliaries_info.get_metadata_application();
+        js["platform"] = auxiliaries_info.get_metadata_platform();
+        js["projectInfoId"] = auxiliaries_info.get_metadata_project_id();
 
         js["operation_date"] = Slic3r::Utils::utc_timestamp(Slic3r::Utils::get_current_time_utc());
         js["app_version"] = GUI_App::format_display_version().c_str();
@@ -324,18 +335,32 @@ void AnalyticsDataUploadManager::uploadObjectPrintParams(int plate_idx,const std
 
 void AnalyticsDataUploadManager::uploadSlicePlateEventData()
 {
-    //json js;
-    //js["type_code"] = "slice806";
-    //js["category"]       = "app_actions";
-    //js["action"]         = "slice_plate";
-    //js["label"]          = "slice";
-    //js["app_version"] = GUI_App::format_display_version().c_str();
-    //js["operating_system"]      = wxGetOsDescription().ToStdString().c_str();
-    //wxGetApp().track_event("click_slice_plate", js.dump());
+     Plater* plater = wxGetApp().plater();
+    Slic3r::AuxiliariesInfo auxiliaries_info = plater->get_auxiliaries_info();
+
+    // only report cubeme project 3mf slice event
+    if(auxiliaries_info.get_metadata_application().empty() || auxiliaries_info.get_metadata_project_id().empty())
+        return;
+
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " cubeme_slice_event";
+
+    json js;
+    js["type_code"] = "slice821";
+    js["client_id"] = wxGetApp().get_client_id();
+
+    js["application"] = auxiliaries_info.get_metadata_application();
+    js["platform"] = auxiliaries_info.get_metadata_platform();
+    js["projectInfoId"] = auxiliaries_info.get_metadata_project_id();
+
+    js["app_version"] = GUI_App::format_display_version().c_str();
+    js["operating_system"]      = wxGetOsDescription().ToStdString().c_str();
+    wxGetApp().track_event("cubeme_slice_event", js.dump());
 }
 
 void AnalyticsDataUploadManager::uploadSoftwareLaunchData()
 {
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
+
     json js;
     js["type_code"] = "slice806";
 
@@ -351,6 +376,7 @@ void AnalyticsDataUploadManager::uploadSoftwareLaunchData()
 
 void AnalyticsDataUploadManager::uploadSoftwareCrashData()
 {
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
     json js;
     js["type_code"] = "slice807";
     js["client_id"] = wxGetApp().get_client_id();
@@ -366,8 +392,28 @@ void AnalyticsDataUploadManager::uploadSoftwareCrashData()
     wxGetApp().track_event("software_crash", js.dump());
 }
 
+void AnalyticsDataUploadManager::uploadSoftwareBadAlloc()
+{
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
+    json js;
+    js["type_code"] = "slice820";
+    js["client_id"] = wxGetApp().get_client_id();
+
+    js["send_crash_report"] = wxGetApp().get_send_crash_report();
+    js["category"]          = "client_crash";
+    js["action"]            = "show_error_report";
+    js["label"]             = "crash_report_dialog";
+    js["app_version"]       = GUI_App::format_display_version().c_str();
+    js["operating_system"]  = wxGetOsDescription().ToStdString().c_str();
+    js["crash_date"]        = Slic3r::Utils::utc_timestamp(Slic3r::Utils::get_current_time_utc());
+
+    wxGetApp().track_event("software_bad_alloc", js.dump());
+}
+
+
 void AnalyticsDataUploadManager::uploadSoftwareCloseData()
 {
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " start";
     json js;
     js["type_code"] = "slice808";
     js["client_id"] = wxGetApp().get_client_id();
@@ -378,6 +424,8 @@ void AnalyticsDataUploadManager::uploadSoftwareCloseData()
     js["close_date"] = Slic3r::Utils::utc_timestamp(Slic3r::Utils::get_current_time_utc());
 
     wxGetApp().track_event("software_close", js.dump());
+    BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << " end";
+    boost::log::core::get()->flush();
 }
 
 void AnalyticsDataUploadManager::uploadDeviceInfoData()

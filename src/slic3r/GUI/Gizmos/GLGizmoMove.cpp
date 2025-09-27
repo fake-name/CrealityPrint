@@ -113,6 +113,9 @@ void GLGizmoMove3D::on_dragging(const UpdateData& data)
     default: { break; }
     }
     selection.translate(m_displacement, trafo_type);
+
+    // fix bug: when move model higher, the top mesh will render error(disappear)
+    m_parent.set_use_clipping_planes(false);
 }
 
 void GLGizmoMove3D::on_render()

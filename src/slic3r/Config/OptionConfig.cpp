@@ -15,14 +15,18 @@ struct OptionConfig::priv
     
     priv()
     {
-        std::string config_path = Slic3r::var("\\process\\ProcessConfig.json");
-        boost::filesystem::path ph(config_path);
+        //std::string config_path = Slic3r::var("\\process\\ProcessConfig.json");
+        
+        boost::filesystem::path ph(Slic3r::resources_dir());
+        ph = ph / "images" / "process" / "ProcessConfig.json";
+        std::cout<<"config_path"<<ph.string()<<std::endl;
         if (boost::filesystem::exists(ph))
         {
+            
             //std::ifstream file(config_path);
 
             // fix for chinese path
-            boost::nowide::ifstream file(config_path);
+            boost::nowide::ifstream file(ph.string());
 
             if (file.is_open())
             {
@@ -37,7 +41,7 @@ struct OptionConfig::priv
             }
             else
             {
-                BOOST_LOG_TRIVIAL(error) << "std::ifstream file(config_path), can not open file:  " << config_path.c_str();
+                BOOST_LOG_TRIVIAL(error) << "std::ifstream file(config_path), can not open file:  " << ph.string();
             }
         }
         else

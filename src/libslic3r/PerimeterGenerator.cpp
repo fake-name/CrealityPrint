@@ -1221,19 +1221,18 @@ void PerimeterGenerator::split_top_surfaces(const ExPolygons &orig_polygons, ExP
     coord_t ext_perimeter_spacing = this->ext_perimeter_flow.scaled_spacing();
 
     bool has_gap_fill = this->config->gap_infill_speed.value > 0;
+    int  peri_count   = config->wall_loops.value;
 
     // split the polygons with top/not_top
     // get the offset from solid surface anchor
-    coord_t offset_top_surface =
-        scale_(0.9 * (config->wall_loops.value == 0
-                          ? 0.
-                          : unscaled(double(ext_perimeter_width +
-                                            perimeter_spacing * int(int(config->wall_loops.value) - int(1))))));
+    const double max_perimeters_width = unscaled(double(ext_perimeter_width + perimeter_spacing * int(peri_count - 1)));
+    coord_t      offset_top_surface   = scale_(config->external_infill_margin.get_abs_value(peri_count == 0 ? 0. : max_perimeters_width));
+    if (offset_top_surface < SCALED_EPSILON) {
+        offset_top_surface = scale_(1.5 * max_perimeters_width);
+    }
     // if possible, try to not push the extra perimeters inside the sparse infill
-    if (offset_top_surface >
-        0.9 * (config->wall_loops.value <= 1 ? 0. : (perimeter_spacing * (config->wall_loops.value - 1))))
-        offset_top_surface -=
-            coord_t(0.9 * (config->wall_loops.value <= 1 ? 0. : (perimeter_spacing * (config->wall_loops.value - 1))));
+    if (offset_top_surface > 0.9 * (peri_count <= 1 ? 0. : (perimeter_spacing * (peri_count - 1))))
+        offset_top_surface -= coord_t(0.9 * (peri_count <= 1 ? 0. : (perimeter_spacing * (peri_count - 1))));
     else
         offset_top_surface = 0;
     // don't takes into account too thin areas
@@ -1242,8 +1241,9 @@ void PerimeterGenerator::split_top_surfaces(const ExPolygons &orig_polygons, ExP
     last_box.offset(SCALED_EPSILON);
 
     // skip if the exposed area is smaller than "min_width_top_surface"
-    double min_width_top_surface = std::max(double(ext_perimeter_spacing / 2. + 10), scale_(config->min_width_top_surface.get_abs_value(unscale_(perimeter_width))));
-
+    //double min_width_top_surface = std::max(double(ext_perimeter_spacing / 2. + 10), scale_(config->min_width_top_surface.get_abs_value(unscale_(perimeter_width))));
+    double min_width_top_surface = (config->min_width_top_surface.value / 100) *
+                                   std::max(ext_perimeter_spacing / 2.0, perimeter_width / 2.0);
     // get the Polygons upper the polygon this layer
     Polygons upper_polygons_series_clipped = ClipperUtils::clip_clipper_polygons_with_subject_bbox(*this->upper_slices, last_box);
     upper_polygons_series_clipped          = offset(upper_polygons_series_clipped, min_width_top_surface);
@@ -1515,9 +1515,10 @@ std::tuple<std::vector<ExtrusionPaths>, Polygons> generate_extra_perimeters_over
                                                                                            const Flow              &overhang_flow,
                                                                                            double                   scaled_resolution,
                                                                                            const PrintObjectConfig &object_config,
-                                                                                           const PrintConfig       &print_config)
+                                                                                           const PrintConfig       &print_config,
+                                                                                           float                    external_infill_margin)
 {
-    coord_t anchors_size = std::min(coord_t(scale_(EXTERNAL_INFILL_MARGIN)), overhang_flow.scaled_spacing() * (perimeter_count + 1));
+    coord_t anchors_size = std::min(coord_t(scale_(external_infill_margin)), overhang_flow.scaled_spacing() * (perimeter_count + 1));
 
     BoundingBox infill_area_bb = get_extents(infill_area).inflated(SCALED_EPSILON);
     Polygons optimized_lower_slices = ClipperUtils::clip_clipper_polygons_with_subject_bbox(lower_slices_polygons, infill_area_bb);
@@ -1716,10 +1717,16 @@ void PerimeterGenerator::apply_extra_perimeters(ExPolygons &infill_area)
     if (!m_spiral_vase && this->lower_slices != nullptr && this->config->detect_overhang_wall && this->config->extra_perimeters_on_overhangs &&
         this->config->wall_loops > 0 && this->layer_id > this->object_config->raft_layers) {
         // Generate extra perimeters on overhang areas, and cut them to these parts only, to save print time and material
+        coord_t perimeter_spacing = this->perimeter_flow.scaled_spacing();
+        coord_t ext_perimeter_width = this->ext_perimeter_flow.scaled_width();
         auto [extra_perimeters, filled_area] = generate_extra_perimeters_over_overhangs(infill_area, this->lower_slices_polygons(),
                                                                                         this->config->wall_loops, this->overhang_flow,
                                                                                         this->m_scaled_resolution, *this->object_config,
-                                                                                        *this->print_config);
+                                                                                        *this->print_config,
+                                                                                        this->config->external_infill_margin.get_abs_value(
+                                                                                            config->wall_loops.value == 0 ?
+                                                                                                0. :
+                                                                                                unscaled(double(ext_perimeter_width + perimeter_spacing * int(config->wall_loops.value - 1)))));
         if (!extra_perimeters.empty()) {
             ExtrusionEntityCollection *this_islands_perimeters = static_cast<ExtrusionEntityCollection *>(this->loops->entities.back());
             ExtrusionEntityCollection  new_perimeters{};
@@ -2655,6 +2662,10 @@ void PerimeterGenerator::process_arachne()
     // solid infill
     coord_t solid_infill_spacing = this->solid_infill_flow.scaled_spacing();
 
+    // external infill margin
+    const double max_perimeters_width = unscaled(double(ext_perimeter_width + perimeter_spacing * int(config->wall_loops.value - 1)));
+    coord_t      offset_top_surface   = scale_(config->external_infill_margin.get_abs_value(config->wall_loops.value == 0 ? 0. : max_perimeters_width));
+
     // prepare grown lower layer slices for overhang detection
     if (this->lower_slices != nullptr && this->config->detect_overhang_wall) {
         // We consider overhang any part where the entire nozzle diameter is not supported by the
@@ -2670,8 +2681,8 @@ void PerimeterGenerator::process_arachne()
     // BBS: don't simplify too much which influence arc fitting when export gcode if arc_fitting is enabled
     double surface_simplify_resolution = (print_config->enable_arc_fitting && this->config->fuzzy_skin == FuzzySkinType::None) ? 0.2 * m_scaled_resolution : m_scaled_resolution;
 
-    //Ôö¼ÓÕâ¸ö½«Ê¹µÃÒ»Ğ©°¸ÀıÇÒ²»¹ı£¬¼ûbug  https://zentao.creality.com/zentao/bug-view-6047.html
-    //Ìí¼ÓÕâ¼¸ĞĞ´úÂë£¬ÉèÖÃÉÏÃæbugµÄ°¸ÀıµÄÇ½ÎªAÇ½£¬½«ÇĞ²»¹ıÈ¥
+    //å¢åŠ è¿™ä¸ªå°†ä½¿å¾—ä¸€äº›æ¡ˆä¾‹ä¸”ä¸è¿‡ï¼Œè§bug  https://zentao.creality.com/zentao/bug-view-6047.html
+    //æ·»åŠ è¿™å‡ è¡Œä»£ç ï¼Œè®¾ç½®ä¸Šé¢bugçš„æ¡ˆä¾‹çš„å¢™ä¸ºAå¢™ï¼Œå°†åˆ‡ä¸è¿‡å»
     //coord_t allowed_distance            = Slic3r::Arachne::meshfix_maximum_deviation(); 
     //if (surface_simplify_resolution < allowed_distance)
     //{
@@ -2760,7 +2771,7 @@ void PerimeterGenerator::process_arachne()
                 // ORCA: Expand the polygon with half the perimeter width in addition to the contracted amount,
                 // not the full perimeter width as PS does, to enable thin lettering to print on the top surface without nozzle collisions
                 // due to thin lines being generated
-                top_expolygons = offset2_ex(top_expolygons, -top_surface_min_width, top_surface_min_width + float(perimeter_width * 0.85));
+                top_expolygons = offset2_ex(top_expolygons, -top_surface_min_width, offset_top_surface + top_surface_min_width + float(perimeter_width * 0.85));
 
                 // Get the not-top ExPolygons (including bridges) from current slices and expanded real top ExPolygons (without bridges).
                 const ExPolygons not_top_expolygons = diff_ex(infill_contour, top_expolygons);
